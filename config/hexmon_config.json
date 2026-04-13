@@ -1,0 +1,167 @@
+{
+  "system": {
+    "project_name": "Multi-CNN + Open-Source LLM Detection System",
+    "version": "1.0.0",
+    "timestamp": "2026-03-27",
+    "model_type": "YOLOv8 PPE Detection"
+  },
+  "models": {
+    "hexmon": {
+      "name": "Hexmon YOLOv8 PPE Detection",
+      "path": "models/hexmon_best.pt",
+      "type": "YOLO",
+      "framework": "PyTorch",
+      "input_size": 640,
+      "source": "https://huggingface.co/Hexmon/vyra-yolo-ppe-detection",
+      "size_mb": 49.64,
+      "classes": {
+        "0": "Fall-Detected",
+        "1": "Gloves",
+        "2": "Goggles",
+        "3": "Hardhat",
+        "4": "Ladder",
+        "5": "Mask",
+        "6": "NO-Gloves",
+        "7": "NO-Goggles",
+        "8": "NO-Hardhat",
+        "9": "NO-Mask",
+        "10": "NO-Safety Vest",
+        "11": "Person",
+        "12": "Safety Cone",
+        "13": "Safety Vest"
+      },
+      "active_classes": {
+        "helmet": {
+          "class_ids": [3, 8],
+          "description": "Hardhat detection (3=Safe, 8=Warning)",
+          "agent": "HelmetAgent"
+        },
+        "vest": {
+          "class_ids": [13, 10],
+          "description": "Safety Vest detection (13=Safe, 10=Warning)",
+          "agent": "VestAgent"
+        }
+      }
+    },
+    "fire": {
+      "name": "Fire & Smoke Detection",
+      "path": "models/fire_best.pt",
+      "type": "YOLO",
+      "framework": "PyTorch",
+      "input_size": 640,
+      "agent": "FireAgent"
+    }
+  },
+  "agents": {
+    "HelmetAgent": {
+      "name": "Baret/Kask Tespit Ajanı",
+      "model": "models/hexmon_best.pt",
+      "confidence_threshold": 0.3,
+      "target_classes": [3],
+      "warning_classes": [8],
+      "description": "Detects hardhat/helmet on persons",
+      "device": "cpu"
+    },
+    "VestAgent": {
+      "name": "Yelek Tespit Ajanı",
+      "model": "models/hexmon_best.pt",
+      "confidence_threshold": 0.3,
+      "target_classes": [13],
+      "warning_classes": [10],
+      "description": "Detects safety vest on persons",
+      "device": "cpu"
+    },
+    "FireAgent": {
+      "name": "Yangın Tespit Ajanı",
+      "model": "models/fire_best.pt",
+      "confidence_threshold": 0.2,
+      "target_classes": [0],
+      "description": "Detects fire and smoke",
+      "device": "cpu"
+    }
+  },
+  "pipeline": {
+    "use_llm": false,
+    "ollama_url": "http://localhost:11434",
+    "device": "cpu",
+    "confidence_threshold": 0.3,
+    "save_results": true,
+    "results_dir": "./results",
+    "processing": {
+      "timeout_seconds": 30,
+      "max_batch_size": 4
+    }
+  },
+  "preprocessing": {
+    "HelmetAgent": {
+      "resize_to": 640,
+      "histogram_equalization": true,
+      "clahe_enabled": true
+    },
+    "VestAgent": {
+      "resize_to": 640,
+      "histogram_equalization": false
+    },
+    "FireAgent": {
+      "resize_to": 640,
+      "color_enhancement": true,
+      "hsv_color_range": true
+    }
+  },
+  "output_format": {
+    "detection": {
+      "bbox": "[x1, y1, x2, y2]",
+      "confidence": "0.0-1.0",
+      "class_id": "integer",
+      "label": "string",
+      "status": "safe|warning"
+    },
+    "sample_response": {
+      "agent": "HelmetAgent",
+      "detections": [
+        {
+          "bbox": [100, 150, 200, 300],
+          "confidence": 0.85,
+          "class_id": 3,
+          "label": "hardhat",
+          "status": "safe"
+        }
+      ],
+      "warnings": [
+        {
+          "bbox": [250, 180, 320, 350],
+          "confidence": 0.92,
+          "class_id": 8,
+          "label": "no-hardhat",
+          "status": "warning"
+        }
+      ],
+      "detection_count": 1,
+      "warning_count": 1,
+      "has_issue": true
+    }
+  },
+  "testing": {
+    "test_directory": "test",
+    "test_images_count": 6,
+    "results_directory": "results",
+    "save_annotated": true,
+    "save_json": true
+  },
+  "performance_expectations": {
+    "average_processing_time_per_frame": "1.8 seconds",
+    "min_processing_time": "1.4 seconds",
+    "max_processing_time": "2.5 seconds",
+    "device": "CPU (no GPU)",
+    "note": "Times may vary based on image size and complexity"
+  },
+  "status": {
+    "hexmon_integration": "ACTIVE",
+    "helmet_agent": "ACTIVE",
+    "vest_agent": "ACTIVE",
+    "fire_agent": "ACTIVE",
+    "pipeline": "ACTIVE",
+    "llm_integration": "INACTIVE (optional)"
+  }
+}
+
