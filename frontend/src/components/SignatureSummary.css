@@ -1,0 +1,13 @@
+.sig-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+
+.sig-tag {
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.sig-tag--helmet { background: #3a1f1f; color: #ff8080; border: 1px solid #7a3030; }
+.sig-tag--vest   { background: #3a2a10; color: #ffbb55; border: 1px solid #7a5500; }
+.sig-tag--fire   { background: #4a1a00; color: #ff6622; border: 1px solid #aa3300; }
+
+.sig-clear { color: #4caf50; font-size: 0.82rem; margin-top: 4px; }

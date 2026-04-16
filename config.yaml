@@ -1,0 +1,32 @@
+results_dir: "results"
+
+backend:
+  host: "0.0.0.0"
+  port: 5050
+  cors_origins: ["http://localhost:5173"]
+
+models:
+  person_model: "yolo11n.pt"
+  ppe_model: "models/hansung_ppe.pt"
+  fire_model: "models/fire_best.pt"
+  device: "cpu"
+
+detection:
+  person_confidence: 0.40
+  ppe_confidence: 0.35
+  fire_confidence: 0.50
+  min_hits: 3
+
+event_manager:
+  new_confirm_frames: 2
+  resolved_confirm_sec: 5.0
+  fire_confirm_frames: 2
+  fire_clear_frames: 2
+  person_grace_sec: 2.0
+
+llm:
+  enabled: false
+  model: "mistral"
+  base_url: "http://localhost:11434"
+  timeout: 60
+  temperature: 0.1
