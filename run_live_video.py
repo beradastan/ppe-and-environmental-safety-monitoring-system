@@ -18,6 +18,12 @@ import json
 import time
 from pathlib import Path
 
+try:
+    import torch
+    _DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+except ImportError:
+    _DEVICE = "cpu"
+
 # UTF-8 çıktı
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -31,6 +37,36 @@ RED = "\033[91m"
 CYAN = "\033[96m"
 BOLD = "\033[1m"
 RESET = "\033[0m"
+
+
+def draw_detections(frame, hr, vr, fr):
+    """
+    Ajan tespit sonuçlarını frame üzerine çiz.
+    Bbox'lar 640x640 preprocessed space'den orijinal frame boyutuna scale edilir.
+    Tespit pipeline'ına dokunulmaz; sadece görselleştirme.
+    """
+    h, w = frame.shape[:2]
+    sx, sy = w / 640.0, h / 640.0  # scale faktörleri
+
+    # (items_list, renk, kalınlık)
+    layers = [
+        (hr.get("detections", []), (0, 200,   0), 2),   # Hardhat      → yeşil
+        (hr.get("warnings",    []), (0,   0, 220), 2),   # NO-Hardhat   → kırmızı
+        (vr.get("detections", []), (200, 200,  0), 2),   # Safety Vest  → mavi-yeşil
+        (vr.get("warnings",    []), (0, 140, 255), 2),   # NO-Vest      → turuncu
+        (fr.get("detections", []), (0,  80, 255), 2),   # Fire         → kırmızı-turuncu
+    ]
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    for items, color, thickness in layers:
+        for det in items:
+            x1, y1, x2, y2 = det["bbox"]
+            x1, y1, x2, y2 = int(x1 * sx), int(y1 * sy), int(x2 * sx), int(y2 * sy)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
+            label = f"{det['label']} {det['confidence']:.2f}"
+            cv2.putText(frame, label, (x1, max(y1 - 6, 12)), font, 0.55, color, 2)
+
+    return frame
 
 
 def setup_display_frame(frame, event_info):
@@ -106,7 +142,7 @@ def save_event_report(event_info, report_data, results_dir: Path):
 
     event_status = event_info.get("event_status", "unknown")
     if event_status == "new":
-        suffix = "start"
+        suffix = "new"
     elif event_status == "update":
         existing = list(event_dir.glob(f"{event_id}_update_*.txt"))
         update_num = len(existing) + 1
@@ -129,15 +165,31 @@ def save_event_report(event_info, report_data, results_dir: Path):
         f.write("\n")
 
     json_file = event_dir / f"{event_id}_{suffix}.json"
+
+    # AlarmSignature → frontend'in beklediği signature formatına dönüştür
+    sig = event_info.get("alarm_signature")
+    if sig is not None:
+        h_count = getattr(sig, "helmet_violation_count", 0)
+        v_count = getattr(sig, "vest_violation_count", 0)
+        signature = {
+            "helmet_missing_ids": list(range(1, h_count + 1)),
+            "vest_missing_ids":   list(range(1, v_count + 1)),
+            "fire_detected":      getattr(sig, "fire_detected", False),
+            "fire_confidence":    getattr(sig, "fire_confidence", 0.0),
+        }
+    else:
+        signature = {}
+
     json_data = {
-        "event_id": event_id,
+        "event_id":     event_id,
         "event_status": event_status,
-        "timestamp": report_data.get("timestamp"),
+        "timestamp":    report_data.get("timestamp"),
         "repeat_count": event_info.get("repeat_count"),
         "duration_sec": event_info.get("duration_sec"),
-        "alarm": report_data.get("alarm"),
-        "llm_report": report_data.get("report"),
-        "structured": report_data.get("structured"),
+        "change_reason": event_info.get("change_reason", ""),
+        "signature":    signature,
+        "llm_report":   report_data.get("report"),
+        "structured":   report_data.get("structured"),
     }
     with open(json_file, "w", encoding="utf-8") as f:
         json.dump(json_data, f, ensure_ascii=False, indent=2)
@@ -202,6 +254,7 @@ def main():
     print(f"{BOLD}{'=' * 65}{RESET}")
     print(f"  Kaynak  : {'Kamera ' + str(camera_idx) if not video_file else 'Video: ' + video_file}")
     print(f"  LLM     : {'[OFFLINE / Mock]' if offline else '[Ollama / mistral]'}")
+    print(f"  Cihaz   : {_DEVICE.upper()}")
     print(f"  Timeout : 10 saniye")
     print(f"  İşleme  : saniyede 1 kez")
 
@@ -210,9 +263,9 @@ def main():
     try:
         from agents.specific_agents import HelmetAgent, VestAgent, FireAgent
 
-        helmet_agent = HelmetAgent(device="cpu")
-        vest_agent = VestAgent(device="cpu")
-        fire_agent = FireAgent(device="cpu")
+        helmet_agent = HelmetAgent(device=_DEVICE)
+        vest_agent = VestAgent(device=_DEVICE)
+        fire_agent = FireAgent(device=_DEVICE)
 
         print(f"  {GREEN}✓ HelmetAgent{RESET}")
         print(f"  {GREEN}✓ VestAgent{RESET}")
@@ -242,6 +295,11 @@ def main():
     # ── Ana döngü ayarları ─────────────────────────────────────────
     print(f"\n{BOLD}[4/4] Video işleniyor (ESC = çıkış)...{RESET}\n")
 
+    # Sabit pencere boyutu (1280x720)
+    win_w, win_h = 1280, 720
+    cv2.namedWindow("Factory Safety - Live", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("Factory Safety - Live", win_w, win_h)
+
     results_dir = Path("results")
     frame_count = 0
     event_count = 0
@@ -256,6 +314,8 @@ def main():
         "alarm_signature": None,
         "should_save": False,
     }
+    _empty = {"detections": [], "warnings": []}
+    last_hr, last_vr, last_fr = _empty, _empty, _empty
 
     try:
         while True:
@@ -281,6 +341,7 @@ def main():
                     print(f"{RED}[HATA] Deteksiyon: {e}{RESET}")
                     continue
 
+                last_hr, last_vr, last_fr = hr, vr, fr
                 event_info = event_manager.process_frame(hr, vr, fr)
                 last_event_info = event_info
 
@@ -305,7 +366,9 @@ def main():
                         img_path = event_dir / f"{event_id}_{suffix}.jpg"
                         cv2.imwrite(str(img_path), frame)
 
-            display_frame = setup_display_frame(frame.copy(), last_event_info)
+            display_frame = frame.copy()
+            draw_detections(display_frame, last_hr, last_vr, last_fr)
+            setup_display_frame(display_frame, last_event_info)
             cv2.imshow("Factory Safety - Live", display_frame)
 
             if frame_count % 30 == 0:
