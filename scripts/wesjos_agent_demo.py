@@ -1,538 +1,593 @@
-# -*- coding: utf-8 -*-
-"""
-scripts/wesjos_agent_demo.py
-============================
-Vinayak PPE pipeline demo.
-
-Kullanim:
-    python scripts/wesjos_agent_demo.py --model vinayak_ppe
-    python scripts/wesjos_agent_demo.py --model vinayak_ppe --person-model small --tracker bytetrack.yaml --crop-padding 0.30
-
-Klavye (pencere acikken):
-    Q / ESC   -> Cik
-    R         -> Menuye don
-    SPACE     -> Duraklat / Devam
-    F         -> Tam ekran / Pencere
-    + / -     -> PPE guven esigini ayarla (%5)
-"""
 from __future__ import annotations
 
 import argparse
-import io
-import os
-import sys
-import time
+from collections import Counter, defaultdict, deque
+from dataclasses import dataclass
 from pathlib import Path
-
-os.chdir(Path(__file__).parent.parent)
-sys.path.insert(0, ".")
-
-if sys.platform == "win32":
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+from typing import Any
+from tkinter import Tk, filedialog
 
 import cv2
-import numpy as np
+import torch
 import yaml
+from ultralytics import YOLO
 
-# ── Display sabitleri ────────────────────────────────────────────────────────
-DISPLAY_W = 1280
-DISPLAY_H = 720
-FONT      = cv2.FONT_HERSHEY_SIMPLEX
-WIN       = "Wesjos | Vinayak PPE Demo"
 
-# BGR renk paleti
-C_GREEN  = (0, 200, 0)      # hardhat + vest tamam
-C_ORANGE = (0, 140, 255)    # bir PPE eksik
-C_RED    = (0, 0, 220)      # hardhat + vest her ikisi eksik
-C_YELLOW = (0, 210, 210)    # bilinmiyor / belirsiz
-C_WHITE  = (255, 255, 255)
-C_BLACK  = (0, 0, 0)
-C_GRAY   = (160, 160, 160)
-C_BLUE   = (220, 100, 0)
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
 
-# ── Yardimci fonksiyonlar ────────────────────────────────────────────────────
 
-def _label(img, text, x, y, color=C_WHITE, scale=0.48):
-    (tw, th), _ = cv2.getTextSize(text, FONT, scale, 1)
-    cv2.rectangle(img, (x - 2, y - th - 3), (x + tw + 2, y + 2), C_BLACK, -1)
-    cv2.putText(img, text, (x, y), FONT, scale, color, 1, cv2.LINE_AA)
+@dataclass(frozen=True)
+class AgentConfig:
+    class_names: list[str]
+    conf: float
 
 
-def _resize(frame):
-    oh, ow = frame.shape[:2]
-    scale  = min(DISPLAY_W / ow, DISPLAY_H / oh)
-    nw, nh = int(ow * scale), int(oh * scale)
-    canvas = np.zeros((DISPLAY_H, DISPLAY_W, 3), dtype=np.uint8)
-    px = (DISPLAY_W - nw) // 2
-    py = (DISPLAY_H - nh) // 2
-    canvas[py:py + nh, px:px + nw] = cv2.resize(frame, (nw, nh))
-    return canvas, scale, scale, px, py
+def repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
 
 
-# ── Registry okuyucu ─────────────────────────────────────────────────────────
+def load_yaml(path: Path) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8") as file:
+        data = yaml.safe_load(file)
+    if not isinstance(data, dict):
+        raise ValueError(f"YAML root must be a mapping: {path}")
+    return data
 
-def load_registry(path="models/registry.yaml") -> list[dict]:
-    with open(path, encoding="utf-8") as f:
-        return yaml.safe_load(f).get("models", [])
 
+def resolve_path(value: str) -> Path:
+    path = Path(value)
+    if path.is_absolute():
+        return path
+    return (repo_root() / path).resolve()
 
-def find_model(registry: list[dict], model_id: str) -> dict:
-    for m in registry:
-        if m["id"] == model_id:
-            return m
-    raise ValueError(f"Registry'de model bulunamadi: {model_id!r}")
 
-
-def build_label_map(model_meta: dict) -> dict[str, tuple[str, str]]:
-    mapping: dict[str, tuple[str, str]] = {}
-    for key, labels in model_meta.get("ppe_classes", {}).items():
-        if key.endswith("_present"):
-            cat, status = key[:-8], "present"
-        elif key.endswith("_missing"):
-            cat, status = key[:-8], "missing"
-        else:
-            continue
-        for lbl in labels:
-            mapping[lbl.strip().lower()] = (cat, status)
-    return mapping
-
-
-# ── Model secimleri ──────────────────────────────────────────────────────────
-
-PERSON_MODEL_MAP = {
-    "small": "models/pretrained/person/person_yolov8s-seg.pt",
-    "nano":  "models/yakhyo_yolov8n_best.pt",
-}
-
-PERSON_CONF_MAP = {
-    "small": 0.25,
-    "nano":  0.40,
-}
-
-
-# ── Terminal menusu ──────────────────────────────────────────────────────────
-
-def _menu_select(title: str, options: list[str]) -> int:
-    SEP = "=" * 58
-    print(f"\n{SEP}")
-    print(f"  {title}")
-    print(SEP)
-    for i, opt in enumerate(options, 1):
-        print(f"  [{i}] {opt}")
-    print(SEP)
-    while True:
-        try:
-            raw = input(f"  Secim (1-{len(options)}): ").strip()
-            idx = int(raw) - 1
-            if 0 <= idx < len(options):
-                return idx
-            print("  Gecersiz numara.")
-        except (ValueError, EOFError, KeyboardInterrupt):
-            print("\n  Iptal.")
-            sys.exit(0)
-
-
-def pick_video() -> str:
-    test_dir = Path("test")
-    videos = sorted(test_dir.glob("*.mp4")) + sorted(test_dir.glob("*.avi"))
-    if not videos:
-        print("test/ dizininde video bulunamadi.")
-        sys.exit(1)
-    idx = _menu_select("VIDEO SEC", [v.name for v in videos])
-    return str(videos[idx])
-
-
-# ── PPE agent wrapper ────────────────────────────────────────────────────────
-
-def build_ppe_agent(model_meta: dict, device: str, conf: float):
-    from ultralytics import YOLO
-    import torch
-
-    yolo  = YOLO(model_meta["file"])
-    lmap  = build_label_map(model_meta)
-    cids  = [cid for cid, nm in yolo.names.items() if nm.strip().lower() in lmap]
-    if device == "cuda" and torch.cuda.is_available():
-        yolo.to("cuda")
-
-    class _PPEAgent:
-        def __init__(self):
-            self.model          = yolo
-            self.confidence     = conf
-            self.device         = device
-            self._ppe_class_ids = cids
-            self._label_map     = lmap
-
-        def detect(self, frame):
-            return self._run([frame])[0]
-
-        def detect_batch(self, crops):
-            return self._run(crops) if crops else []
-
-        def _run(self, imgs):
-            try:
-                res = self.model(
-                    imgs,
-                    conf=self.confidence,
-                    classes=self._ppe_class_ids or None,
-                    device=self.device,
-                    verbose=False,
-                )
-            except Exception:
-                return [[] for _ in imgs]
-            out = []
-            for r in res:
-                dets = []
-                if r.boxes is not None:
-                    for box in r.boxes:
-                        nm = self.model.names.get(int(box.cls[0]), "").strip().lower()
-                        mp = self._label_map.get(nm)
-                        if mp is None:
-                            continue
-                        cat, status = mp
-                        x1, y1, x2, y2 = map(float, box.xyxy[0])
-                        dets.append({
-                            "label":      nm,
-                            "bbox":       [x1, y1, x2, y2],
-                            "confidence": float(box.conf[0]),
-                            "category":   cat,
-                            "status":     status,
-                        })
-                out.append(dets)
-            return out
-
-    return _PPEAgent()
-
-
-# ── Person agent wrapper (seg model) ────────────────────────────────────────
-
-def build_person_agent(model_path: str, device: str, conf: float, tracker: str):
-    from ultralytics import YOLO
-    import torch
-
-    yolo = YOLO(model_path)
-    if device == "cuda" and torch.cuda.is_available():
-        yolo.to("cuda")
-
-    hit_counts: dict[int, int] = {}
-    MIN_HITS = 3
-
-    class _PersonAgent:
-        def __init__(self):
-            self.model      = yolo
-            self.confidence = conf
-            self.device     = device
-
-        def detect(self, frame) -> list[dict]:
-            try:
-                results = self.model.track(
-                    source=frame,
-                    conf=self.confidence,
-                    classes=[0],        # person only
-                    tracker=tracker,
-                    persist=True,
-                    device=self.device,
-                    verbose=False,
-                )
-            except Exception:
-                return []
-
-            if not results or results[0].boxes is None:
-                return []
-
-            out = []
-            for box in results[0].boxes:
-                if box.id is None:
-                    continue
-                tid  = int(box.id[0])
-                x1, y1, x2, y2 = map(float, box.xyxy[0])
-                cf   = float(box.conf[0])
-                hit_counts[tid] = hit_counts.get(tid, 0) + 1
-                out.append({
-                    "track_id":    tid,
-                    "bbox":        [x1, y1, x2, y2],
-                    "confidence":  cf,
-                    "is_confirmed": hit_counts[tid] >= MIN_HITS,
-                })
-            return out
-
-        def reset(self):
-            hit_counts.clear()
-            if hasattr(self.model, "predictor") and self.model.predictor:
-                if hasattr(self.model.predictor, "trackers"):
-                    self.model.predictor.trackers = None
-
-    return _PersonAgent()
-
-
-# ── Kisi rengi ──────────────────────────────────────────────────────────────
-
-def _person_color(helmet_status: str, vest_status: str, check_helmet: bool, check_vest: bool) -> tuple:
-    helmet_missing = check_helmet and helmet_status == "missing"
-    vest_missing   = check_vest   and vest_status   == "missing"
-
-    if helmet_status == "unknown" and vest_status == "unknown":
-        return C_YELLOW
-    if helmet_missing and vest_missing:
-        return C_RED
-    if helmet_missing or vest_missing:
-        return C_ORANGE
-    return C_GREEN
-
-
-# ── Frame cizici ─────────────────────────────────────────────────────────────
-
-def draw_frame(
-    frame:          np.ndarray,
-    person_results: list,
-    ppe_dets:       list,
-    event_result:   dict,
-    fps:            float,
-    model_id:       str,
-    person_model:   str,
-    conf_ppe:       float,
-    paused:         bool,
-    check_helmet:   bool,
-    check_vest:     bool,
-) -> np.ndarray:
-    out, sx, sy, px, py = _resize(frame)
-
-    # PPE kutulari
-    for det in ppe_dets:
-        x1 = int(det["bbox"][0] * sx + px); y1 = int(det["bbox"][1] * sy + py)
-        x2 = int(det["bbox"][2] * sx + px); y2 = int(det["bbox"][3] * sy + py)
-        col = C_RED if det["status"] == "missing" else C_GREEN
-        cv2.rectangle(out, (x1, y1), (x2, y2), col, 1)
-        _label(out, f"{det['label']} {det['confidence']:.0%}", x1, y2 + 14, col, 0.36)
-
-    # Kisi kutulari
-    for p in person_results:
-        ox1, oy1, ox2, oy2 = p["person_bbox"]
-        x1 = int(ox1 * sx + px); y1 = int(oy1 * sy + py)
-        x2 = int(ox2 * sx + px); y2 = int(oy2 * sy + py)
-
-        col = _person_color(p["helmet_status"], p["vest_status"], check_helmet, check_vest)
-        cv2.rectangle(out, (x1, y1), (x2, y2), col, 2)
-
-        tid = p.get("track_id")
-        viols = p.get("violations", [])
-        tag = f"#{tid}"
-        if viols:
-            tag += " " + ",".join(v.replace("no_", "!") for v in viols)
-        _label(out, tag, x1, y1 - 5, col)
-
-        # PPE durum satirlari (kisi kutusunun alt kosesi)
-        line_y = y2 + 15
-        for item, status_key in [("H", "helmet_status"), ("V", "vest_status")]:
-            st = p.get(status_key, "unknown")
-            c  = C_GREEN if st == "present" else (C_RED if st == "missing" else C_YELLOW)
-            _label(out, f"{item}:{st[0].upper()}", x1, line_y, c, 0.38)
-            line_y += 14
-
-    # Olay durumu paneli (ust sol)
-    sig = event_result.get("signature", {})
-    status = event_result.get("event_status", "idle")
-    reason = event_result.get("reason", "")
-
-    panel_color = C_RED if status in ("new", "active") else C_GRAY
-    _label(out, f"Event: {status.upper()}", 8, 22, panel_color, 0.55)
-    _label(out, reason[:55], 8, 42, C_GRAY, 0.40)
-
-    h_viol = sig.get("helmet_violation", False)
-    v_viol = sig.get("vest_violation",   False)
-    _label(out, f"Helmet: {'IHLAL' if h_viol else 'OK'}", 8, 62,
-           C_RED if h_viol else C_GREEN, 0.42)
-    _label(out, f"Vest:   {'IHLAL' if v_viol else 'OK'}", 8, 78,
-           C_RED if v_viol else C_GREEN, 0.42)
-
-    # Ust sag: FPS + model bilgisi
-    info = f"{fps:.0f} FPS | PPE:{model_id} | Person:{person_model}"
-    _label(out, info, 8, DISPLAY_H - 36, C_WHITE, 0.40)
-    _label(out, f"conf={conf_ppe:.0%}  [+/-]  |  SPACE=pause  R=menu  Q=quit",
-           8, DISPLAY_H - 18, C_GRAY, 0.38)
-
-    if paused:
-        _label(out, "DURAKLADI", DISPLAY_W // 2 - 55, DISPLAY_H // 2, C_YELLOW, 0.9)
-
-    return out
-
-
-# ── Ana video dongusu ─────────────────────────────────────────────────────────
-
-def run_video(
-    video_path:   str,
-    ppe_agent,
-    person_agent,
-    args:         argparse.Namespace,
-    model_meta:   dict,
-) -> str:
-    """Videoyu isle. 'menu' veya 'quit' dondur."""
-    from matching.crop_ppe_matcher import CropPPEMatcher
-    from event_manager import PersonEventManager
-
-    crop_matcher = CropPPEMatcher(
-        crop_pad=args.crop_padding,
-        check_helmet=True,
-        check_vest=True,
-        check_mask=False,
+def choose_source_file() -> Path:
+    desktop = Path.home() / "Desktop"
+    root = Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    selected = filedialog.askopenfilename(
+        title="PPE test kaynagini sec",
+        initialdir=str(desktop if desktop.exists() else Path.home()),
+        filetypes=[
+            ("Video ve gorseller", "*.mp4 *.avi *.mov *.mkv *.webm *.jpg *.jpeg *.png *.bmp *.webp"),
+            ("Videolar", "*.mp4 *.avi *.mov *.mkv *.webm"),
+            ("Gorseller", "*.jpg *.jpeg *.png *.bmp *.webp"),
+            ("Tum dosyalar", "*.*"),
+        ],
     )
-    em = PersonEventManager(check_helmet=True, check_vest=True, check_mask=False)
-    person_agent.reset()
+    root.destroy()
+    if not selected:
+        raise SystemExit("Dosya secilmedi.")
+    return Path(selected)
 
-    cap = cv2.VideoCapture(video_path)
+
+def resolve_source(value: str | None) -> int | Path:
+    if value is None:
+        return choose_source_file()
+    if value.isdigit():
+        return int(value)
+    return resolve_path(value)
+
+
+def select_device(requested: str) -> str:
+    if requested.lower() == "cpu":
+        return "cpu"
+    if torch.cuda.is_available():
+        return requested
+    gpu_requirements = repo_root() / "requirements-gpu.txt"
+    raise SystemExit(
+        "GPU secildi ama bu Python ortaminda CUDA aktif degil. "
+        f"Once su komutu calistir: python -m pip install --force-reinstall -r \"{gpu_requirements}\" --timeout 1000 --retries 10"
+    )
+
+
+def class_ids(model: YOLO, names: list[str]) -> list[int]:
+    name_to_id = {name: class_id for class_id, name in model.names.items()}
+    missing = [name for name in names if name not in name_to_id]
+    if missing:
+        raise ValueError(f"Model is missing expected classes: {', '.join(missing)}")
+    return [name_to_id[name] for name in names]
+
+
+def crop_with_padding(frame, box, pad_ratio: float):
+    height, width = frame.shape[:2]
+    x1, y1, x2, y2 = map(int, box)
+    box_width = max(1, x2 - x1)
+    box_height = max(1, y2 - y1)
+    pad_x = int(box_width * pad_ratio)
+    pad_y = int(box_height * pad_ratio)
+
+    x1 = max(0, x1 - pad_x)
+    y1 = max(0, y1 - pad_y)
+    x2 = min(width, x2 + pad_x)
+    y2 = min(height, y2 + pad_y)
+    return frame[y1:y2, x1:x2]
+
+
+def best_detection(model: YOLO, result, allowed_ids: list[int], min_conf: float) -> tuple[str, float]:
+    best: tuple[str, float] | None = None
+    for box in result.boxes:
+        cls_id = int(box.cls[0])
+        conf = float(box.conf[0])
+        if cls_id not in allowed_ids or conf < min_conf:
+            continue
+        label = str(model.names[cls_id])
+        if best is None or conf > best[1]:
+            best = (label, conf)
+    return best if best else ("unknown", 0.0)
+
+
+def vote(values: deque[str]) -> str:
+    if not values:
+        return "unknown"
+    return Counter(values).most_common(1)[0][0]
+
+
+def readable_text_color(color: tuple[int, int, int]) -> tuple[int, int, int]:
+    brightness = (0.114 * color[0]) + (0.587 * color[1]) + (0.299 * color[2])
+    return (0, 0, 0) if brightness > 150 else (255, 255, 255)
+
+
+def draw_label(frame, text: str, xy: tuple[int, int], color: tuple[int, int, int], scale: float = 0.65) -> None:
+    x, y = xy
+    y = max(26, y)
+    thickness = 2
+    padding = 6
+    text_size, baseline = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, thickness)
+    text_width, text_height = text_size
+    x2 = min(frame.shape[1] - 1, x + text_width + padding * 2)
+    y1 = max(0, y - text_height - baseline - padding * 2)
+    cv2.rectangle(frame, (x, y1), (x2, y + baseline), color, -1)
+    cv2.rectangle(frame, (x, y1), (x2, y + baseline), (20, 20, 20), 1)
+    cv2.putText(
+        frame,
+        text,
+        (x + padding, y - padding),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        scale,
+        readable_text_color(color),
+        thickness,
+        cv2.LINE_AA,
+    )
+
+
+def draw_panel(frame, lines: list[str]) -> None:
+    if not lines:
+        return
+    scale = 0.65
+    thickness = 2
+    padding = 10
+    line_height = 26
+    width = max(cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, scale, thickness)[0][0] for line in lines)
+    panel_width = min(frame.shape[1] - 1, width + padding * 2)
+    panel_height = padding * 2 + line_height * len(lines)
+    cv2.rectangle(frame, (8, 8), (8 + panel_width, 8 + panel_height), (25, 25, 25), -1)
+    cv2.rectangle(frame, (8, 8), (8 + panel_width, 8 + panel_height), (240, 240, 240), 1)
+    for index, line in enumerate(lines):
+        y = 8 + padding + 18 + index * line_height
+        cv2.putText(frame, line, (8 + padding, y), cv2.FONT_HERSHEY_SIMPLEX, scale, (255, 255, 255), thickness, cv2.LINE_AA)
+
+
+def compliance_status(hardhat: str, vest: str) -> tuple[str, tuple[int, int, int]]:
+    hardhat_ok = hardhat in {"hat", "Hardhat"}
+    vest_ok = vest in {"vest", "Safety Vest"}
+    hardhat_missing = hardhat in {"nohat", "NO-Hardhat"}
+    vest_missing = vest in {"novest", "NO-Safety Vest"}
+
+    if hardhat_ok and vest_ok:
+        return "OK", (0, 190, 0)
+    if hardhat_missing and vest_missing:
+        return "NO HARDHAT + NO VEST", (0, 0, 230)
+    if hardhat_missing and vest_ok:
+        return "NO HARDHAT", (0, 140, 255)
+    if hardhat_ok and vest_missing:
+        return "NO VEST", (0, 140, 255)
+    if hardhat_missing:
+        return "NO HARDHAT / VEST ?", (0, 215, 255)
+    if vest_missing:
+        return "HARDHAT ? / NO VEST", (0, 215, 255)
+    return "UNKNOWN", (0, 215, 255)
+
+
+def resize_for_display(frame, max_width: int, max_height: int):
+    height, width = frame.shape[:2]
+    scale = min(max_width / width, max_height / height, 1.0)
+    if scale >= 1.0:
+        return frame
+    return cv2.resize(frame, (int(width * scale), int(height * scale)), interpolation=cv2.INTER_AREA)
+
+
+def show_fixed_window(window_name: str, frame, config: dict[str, Any]) -> None:
+    display = config.get("display", {})
+    max_width = int(display.get("width", 1280))
+    max_height = int(display.get("height", 720))
+    cv2.imshow(window_name, resize_for_display(frame, max_width, max_height))
+
+
+def run_direct_predict(model: YOLO, source: Path, imgsz: int, conf: float, device: str, model_key: str) -> None:
+    model.predict(
+        source=str(source),
+        imgsz=imgsz,
+        conf=conf,
+        device=device,
+        save=True,
+        project=str(repo_root() / "runs" / "wesjos"),
+        name=f"direct_{model_key}",
+        exist_ok=True,
+    )
+
+
+def model_agent_classes(config: dict[str, Any], ppe_model_key: str, agent_name: str) -> list[str]:
+    model_config = config.get("models", {}).get(ppe_model_key, {})
+    model_agents = model_config.get("agents", {})
+    if agent_name in model_agents and "classes" in model_agents[agent_name]:
+        return list(model_agents[agent_name]["classes"])
+    return list(config["agents"][agent_name]["classes"])
+
+
+def build_agent_runtime(
+    person_model: YOLO,
+    ppe_model: YOLO,
+    config: dict[str, Any],
+    ppe_model_key: str = "vinayak_ppe",
+) -> dict[str, Any]:
+    agents = config["agents"]
+    tracking = config["tracking"]
+
+    person = AgentConfig(agents["person"]["classes"], float(agents["person"]["conf"]))
+    hardhat = AgentConfig(model_agent_classes(config, ppe_model_key, "hardhat"), float(agents["hardhat"]["conf"]))
+    vest = AgentConfig(model_agent_classes(config, ppe_model_key, "vest"), float(agents["vest"]["conf"]))
+
+    return {
+        "person": person,
+        "hardhat": hardhat,
+        "vest": vest,
+        "person_ids": class_ids(person_model, person.class_names),
+        "hardhat_ids": class_ids(ppe_model, hardhat.class_names),
+        "vest_ids": class_ids(ppe_model, vest.class_names),
+        "tracker": str(tracking["tracker"]),
+        "imgsz": int(tracking["imgsz"]),
+        "crop_padding": float(tracking["crop_padding"]),
+        "temporal_window": int(tracking["temporal_window"]),
+    }
+
+
+def override_tracking(config: dict[str, Any], tracker: str | None, crop_padding: float | None) -> None:
+    tracking = config.setdefault("tracking", {})
+    if tracker is not None:
+        tracking["tracker"] = tracker
+    if crop_padding is not None:
+        tracking["crop_padding"] = crop_padding
+
+
+def process_agent_frame(
+    person_model: YOLO,
+    ppe_model: YOLO,
+    frame,
+    runtime: dict[str, Any],
+    states,
+    device: str,
+    overlay: dict[str, Any] | None = None,
+):
+    person_result = person_model.track(
+        frame,
+        classes=runtime["person_ids"],
+        tracker=runtime["tracker"],
+        persist=True,
+        imgsz=runtime["imgsz"],
+        conf=runtime["person"].conf,
+        device=device,
+        verbose=False,
+    )[0]
+
+    boxes = person_result.boxes
+    if boxes is None or boxes.id is None:
+        if overlay is not None:
+            draw_panel(frame, [f"PPE: {overlay['ppe_model']}", f"Person: {overlay['person_model']}", "Tracks: 0"])
+        return frame
+
+    track_count = len(boxes.id)
+    for box, track_id_tensor in zip(boxes.xyxy, boxes.id):
+        track_id = int(track_id_tensor)
+        x1, y1, x2, y2 = map(int, box.tolist())
+        person_crop = crop_with_padding(frame, [x1, y1, x2, y2], runtime["crop_padding"])
+
+        hardhat_result = ppe_model.predict(
+            person_crop,
+            classes=runtime["hardhat_ids"],
+            imgsz=runtime["imgsz"],
+            conf=runtime["hardhat"].conf,
+            device=device,
+            verbose=False,
+        )[0]
+        hardhat_label, hardhat_conf = best_detection(
+            ppe_model, hardhat_result, runtime["hardhat_ids"], runtime["hardhat"].conf
+        )
+
+        vest_result = ppe_model.predict(
+            person_crop,
+            classes=runtime["vest_ids"],
+            imgsz=runtime["imgsz"],
+            conf=runtime["vest"].conf,
+            device=device,
+            verbose=False,
+        )[0]
+        vest_label, vest_conf = best_detection(ppe_model, vest_result, runtime["vest_ids"], runtime["vest"].conf)
+
+        states[track_id]["hardhat"].append(hardhat_label)
+        states[track_id]["vest"].append(vest_label)
+
+        hardhat_vote = vote(states[track_id]["hardhat"])
+        vest_vote = vote(states[track_id]["vest"])
+        status, color = compliance_status(hardhat_vote, vest_vote)
+
+        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 4)
+        cv2.circle(frame, (x1, y1), 5, color, -1)
+        draw_label(
+            frame,
+            f"ID {track_id} | {status} | H:{hardhat_vote} {hardhat_conf:.2f} | V:{vest_vote} {vest_conf:.2f}",
+            (x1, y1 - 10),
+            color,
+        )
+
+    if overlay is not None:
+        draw_panel(
+            frame,
+            [
+                f"PPE: {overlay['ppe_model']}",
+                f"Person: {overlay['person_model']}",
+                f"Tracker: {runtime['tracker']} | Padding: {runtime['crop_padding']}",
+                f"Tracks: {track_count}",
+            ],
+        )
+
+    return frame
+
+
+def run_agent_video(
+    person_model: YOLO,
+    ppe_model: YOLO,
+    source: Path,
+    model_key: str,
+    config: dict[str, Any],
+    device: str,
+    max_frames: int | None,
+) -> None:
+    runtime = build_agent_runtime(person_model, ppe_model, config, ppe_model_key=model_key)
+
+    cap = cv2.VideoCapture(str(source))
     if not cap.isOpened():
-        print(f"Video acilamadi: {video_path}")
-        return "menu"
+        raise ValueError(f"Could not open video source: {source}")
 
-    vid_fps  = cap.get(cv2.CAP_PROP_FPS) or 30
-    total_fr = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    paused   = False
-    fullscr  = False
+    fps = cap.get(cv2.CAP_PROP_FPS) or 25
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    cv2.namedWindow(WIN, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(WIN, DISPLAY_W, DISPLAY_H)
+    output_dir = repo_root() / "runs" / "wesjos" / f"agent_{model_key}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / f"{source.stem}_agent_demo.mp4"
 
-    fps_hist: list[float] = []
-    t_last   = time.perf_counter()
-    result   = "menu"
-    event_result: dict = {"event_status": "idle", "signature": {}, "reason": "baslatiliyor"}
+    writer = cv2.VideoWriter(
+        str(output_path),
+        cv2.VideoWriter_fourcc(*"mp4v"),
+        fps,
+        (width, height),
+    )
 
-    frame_delay = max(1, int(1000 / vid_fps))
+    states = defaultdict(
+        lambda: {
+            "hardhat": deque(maxlen=runtime["temporal_window"]),
+            "vest": deque(maxlen=runtime["temporal_window"]),
+        }
+    )
+    frame_idx = 0
 
-    while True:
-        key = cv2.waitKey(frame_delay) & 0xFF
-
-        if key in (ord("q"), 27):          # Q / ESC
-            result = "quit"
+    while cap.isOpened():
+        ok, frame = cap.read()
+        if not ok:
             break
-        if key == ord("r"):                # R — menu
-            result = "menu"
+        frame_idx += 1
+
+        frame = process_agent_frame(
+            person_model,
+            ppe_model,
+            frame,
+            runtime,
+            states,
+            device,
+            overlay={"ppe_model": model_key, "person_model": "selected"},
+        )
+
+        writer.write(frame)
+
+        if max_frames is not None and frame_idx >= max_frames:
             break
-        if key == ord(" "):                # SPACE — pause
-            paused = not paused
-        if key == ord("f"):                # F — fullscreen
-            fullscr = not fullscr
-            cv2.setWindowProperty(WIN, cv2.WND_PROP_FULLSCREEN,
-                                  cv2.WINDOW_FULLSCREEN if fullscr else cv2.WINDOW_NORMAL)
-        if key == ord("+") or key == 43:   # + — conf artir
-            ppe_agent.confidence = min(0.95, ppe_agent.confidence + 0.05)
-        if key == ord("-") or key == 45:   # - — conf azalt
-            ppe_agent.confidence = max(0.05, ppe_agent.confidence - 0.05)
-
-        if paused:
-            continue
-
-        ret, frame = cap.read()
-        if not ret:
-            # Video bitti — basından başla
-            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-            person_agent.reset()
-            em = PersonEventManager(check_helmet=True, check_vest=True, check_mask=False)
-            continue
-
-        # Pipeline
-        persons   = person_agent.detect(frame)
-        confirmed = [p for p in persons if p.get("is_confirmed", True)]
-
-        person_results, ppe_dets = (
-            crop_matcher.match(frame, confirmed, ppe_agent)
-            if confirmed else ([], [])
-        )
-        event_result = em.process_frame(person_results)
-
-        # FPS hesaplama
-        now  = time.perf_counter()
-        fps_hist.append(1.0 / max(now - t_last, 1e-6))
-        t_last = now
-        if len(fps_hist) > 30:
-            fps_hist.pop(0)
-        fps = sum(fps_hist) / len(fps_hist)
-
-        display = draw_frame(
-            frame, person_results, ppe_dets, event_result, fps,
-            model_id=model_meta["id"],
-            person_model=args.person_model,
-            conf_ppe=ppe_agent.confidence,
-            paused=paused,
-            check_helmet=True,
-            check_vest=True,
-        )
-        cv2.imshow(WIN, display)
 
     cap.release()
-    return result
+    writer.release()
+
+    print(f"Saved agent demo video: {output_path}")
+    print("Final track states:")
+    for track_id, state in sorted(states.items()):
+        print(f"  ID {track_id}: hardhat={vote(state['hardhat'])}, vest={vote(state['vest'])}")
 
 
-# ── CLI ──────────────────────────────────────────────────────────────────────
+def run_live_camera(
+    person_model: YOLO,
+    ppe_model: YOLO,
+    source: int | Path,
+    model_key: str,
+    person_model_key: str,
+    config: dict[str, Any],
+    device: str,
+) -> None:
+    runtime = build_agent_runtime(person_model, ppe_model, config, ppe_model_key=model_key)
+    states = defaultdict(
+        lambda: {
+            "hardhat": deque(maxlen=runtime["temporal_window"]),
+            "vest": deque(maxlen=runtime["temporal_window"]),
+        }
+    )
+
+    cap = cv2.VideoCapture(source if isinstance(source, int) else str(source))
+    if not cap.isOpened():
+        raise ValueError(f"Could not open live source: {source}")
+
+    window_name = "Wesjos PPE Agent Live - press q to quit"
+    print("Live view started. Press q in the video window to quit.")
+    cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
+
+    while cap.isOpened():
+        ok, frame = cap.read()
+        if not ok:
+            break
+
+        frame = process_agent_frame(
+            person_model,
+            ppe_model,
+            frame,
+            runtime,
+            states,
+            device,
+            overlay={"ppe_model": model_key, "person_model": person_model_key},
+        )
+        show_fixed_window(window_name, frame, config)
+
+        if cv2.waitKey(1) & 0xFF == ord("q"):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+
+def run_live_image(
+    person_model: YOLO,
+    ppe_model: YOLO,
+    source: Path,
+    model_key: str,
+    person_model_key: str,
+    config: dict[str, Any],
+    device: str,
+) -> None:
+    runtime = build_agent_runtime(person_model, ppe_model, config, ppe_model_key=model_key)
+    states = defaultdict(
+        lambda: {
+            "hardhat": deque(maxlen=runtime["temporal_window"]),
+            "vest": deque(maxlen=runtime["temporal_window"]),
+        }
+    )
+
+    frame = cv2.imread(str(source))
+    if frame is None:
+        raise ValueError(f"Could not open image source: {source}")
+
+    frame = process_agent_frame(
+        person_model,
+        ppe_model,
+        frame,
+        runtime,
+        states,
+        device,
+        overlay={"ppe_model": model_key, "person_model": person_model_key},
+    )
+    window_name = "Wesjos PPE Agent Image - press q to quit"
+    print("Image view opened. Press q in the image window to quit.")
+    cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
+
+    while True:
+        show_fixed_window(window_name, frame, config)
+        if cv2.waitKey(1) & 0xFF == ord("q"):
+            break
+
+    cv2.destroyAllWindows()
+
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(
-        description="Wesjos | Vinayak PPE agent demo",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    parser = argparse.ArgumentParser(description="Test wesjos hard-hat/safety-vest pretrained models.")
+    parser.add_argument("--source", help="Image or video path. If omitted, a file picker opens on Desktop.")
+    parser.add_argument("--model", choices=["vinayak_ppe"], default="vinayak_ppe")
+    parser.add_argument(
+        "--person-model",
+        choices=["nano", "small"],
+        default="small",
     )
-    p.add_argument("--model",         default="vinayak_ppe",
-                   help="Registry'deki PPE model ID'si.")
-    p.add_argument("--person-model",  default="small",
-                   choices=list(PERSON_MODEL_MAP),
-                   dest="person_model",
-                   help="Kisi takip modeli: small=yolov8s-seg, nano=yolov8n.")
-    p.add_argument("--tracker",       default="bytetrack.yaml",
-                   help="Ultralytics tracker config.")
-    p.add_argument("--crop-padding",  type=float, default=0.30,
-                   dest="crop_padding",
-                   help="Kisi bbox crop padding orani.")
-    p.add_argument("--device",        default="cuda", choices=["cpu", "cuda"])
-    p.add_argument("--conf-ppe",      type=float, default=0.25, dest="conf_ppe",
-                   help="PPE model guven esigi.")
-    p.add_argument("--video",         default=None,
-                   help="Video dosyasi. Belirtilmezse menu acilir.")
-    return p.parse_args()
+    parser.add_argument("--mode", choices=["live", "direct", "agent-video"], default="live")
+    parser.add_argument("--config", default="configs/pretrained_wesjos.yaml")
+    parser.add_argument("--conf", type=float, default=0.4)
+    parser.add_argument("--imgsz", type=int, default=640)
+    parser.add_argument("--device", help="CUDA device id such as 0, or cpu. Defaults to config tracking.device.")
+    parser.add_argument("--tracker", choices=["bytetrack.yaml", "botsort.yaml"], help="Tracker config for person IDs.")
+    parser.add_argument("--crop-padding", type=float, help="Extra padding around each person crop, e.g. 0.30.")
+    parser.add_argument("--max-frames", type=int, help="Limit frames for quick video tests.")
+    return parser.parse_args()
 
 
 def main() -> None:
-    import torch
     args = parse_args()
+    config = load_yaml(resolve_path(args.config))
+    override_tracking(config, tracker=args.tracker, crop_padding=args.crop_padding)
+    model_path = resolve_path(config["models"][args.model]["path"])
+    person_model_path = resolve_path(config["person_models"][args.person_model]["path"])
+    source = resolve_source(args.source)
+    device = select_device(str(args.device if args.device is not None else config.get("tracking", {}).get("device", 0)))
 
-    device = "cuda" if args.device == "cuda" and torch.cuda.is_available() else "cpu"
-    print(f"\n  Wesjos | Vinayak PPE Demo")
-    print(f"  Device: {'GPU 0' if device == 'cuda' else 'CPU'}  |  "
-          f"Image size: 640  |  Display: {DISPLAY_W}x{DISPLAY_H}")
-    print(f"  Tracker: {args.tracker}  |  Crop padding: {args.crop_padding}\n")
+    if not model_path.exists():
+        raise SystemExit(f"Model file not found: {model_path}")
+    if not person_model_path.exists():
+        raise SystemExit(f"Person model file not found: {person_model_path}")
+    if isinstance(source, Path) and not source.exists():
+        raise SystemExit(f"Source file not found: {source}")
 
-    registry   = load_registry()
-    model_meta = find_model(registry, args.model)
+    ppe_model = YOLO(str(model_path))
+    person_model = YOLO(str(person_model_path))
+    print(f"Loaded PPE model: {model_path}")
+    print(f"Loaded person model: {person_model_path}")
+    print(f"PPE classes: {ppe_model.names}")
+    print(f"Person classes: {person_model.names}")
+    print(f"Device: {device}")
 
-    if not Path(model_meta["file"]).exists():
-        print(f"  HATA: PPE model dosyasi bulunamadi: {model_meta['file']}")
-        sys.exit(1)
+    if args.mode == "live":
+        if isinstance(source, Path) and source.suffix.lower() in IMAGE_EXTENSIONS:
+            run_live_image(
+                person_model,
+                ppe_model,
+                source,
+                model_key=args.model,
+                person_model_key=args.person_model,
+                config=config,
+                device=device,
+            )
+            return
+        run_live_camera(
+            person_model,
+            ppe_model,
+            source,
+            model_key=args.model,
+            person_model_key=args.person_model,
+            config=config,
+            device=device,
+        )
+        return
 
-    person_path = PERSON_MODEL_MAP[args.person_model]
-    if not Path(person_path).exists():
-        print(f"  HATA: Kisi model dosyasi bulunamadi: {person_path}")
-        sys.exit(1)
+    if args.mode == "direct":
+        if not isinstance(source, Path):
+            raise SystemExit("--mode direct requires an image or video path.")
+        run_direct_predict(ppe_model, source, imgsz=args.imgsz, conf=args.conf, device=device, model_key=args.model)
+        return
 
-    print(f"  Modeller yukleniyor...")
-    ppe_agent    = build_ppe_agent(model_meta, device, args.conf_ppe)
-    person_agent = build_person_agent(
-        model_path=person_path,
+    if not isinstance(source, Path) or source.suffix.lower() not in VIDEO_EXTENSIONS:
+        raise SystemExit("--mode agent-video requires a video source.")
+    run_agent_video(
+        person_model,
+        ppe_model,
+        source,
+        model_key=args.model,
+        config=config,
         device=device,
-        conf=PERSON_CONF_MAP[args.person_model],
-        tracker=args.tracker,
+        max_frames=args.max_frames,
     )
-    print(f"  PPE model   : {model_meta['id']}  ({model_meta['file']})")
-    print(f"  Person model: {args.person_model}  ({person_path})")
-    print(f"  Hazir.\n")
-
-    while True:
-        video = args.video if args.video else pick_video()
-        print(f"  Video: {video}")
-
-        action = run_video(video, ppe_agent, person_agent, args, model_meta)
-
-        cv2.destroyAllWindows()
-        if action == "quit":
-            break
-        # action == "menu" → dongu basina don
 
 
 if __name__ == "__main__":

@@ -1,0 +1,56 @@
+provider: wesjos
+source: https://huggingface.co/wesjos/Yolo-hard-hat-safety-vest
+
+models:
+  vinayak_ppe:
+    path: models/pretrained/vinayakmane/ppe.pt
+    description: Vinayakmane47 PPE_detection_YOLO model trained on Roboflow construction PPE dataset
+    dataset_source: https://universe.roboflow.com/roboflow-universe-projects/construction-site-safety/dataset/27
+    dataset_version: Construction Site Safety v27 YOLOv8s
+    dataset_split:
+      train: 2605
+      valid: 114
+      test: 82
+    agents:
+      hardhat:
+        classes: [Hardhat, NO-Hardhat]
+      vest:
+        classes: [Safety Vest, NO-Safety Vest]
+
+person_models:
+  nano:
+    path: models/pretrained/person/person_yolov8n-seg.pt
+    description: Lightweight person-only YOLOv8n segmentation model
+  small:
+    path: models/pretrained/person/person_yolov8s-seg.pt
+    description: Stronger person-only YOLOv8s segmentation model
+
+classes:
+  0: hat
+  1: nohat
+  2: novest
+  3: person
+  4: vest
+
+agents:
+  person:
+    classes: [person]
+    conf: 0.25
+  hardhat:
+    classes: [hat, nohat]
+    conf: 0.30
+  vest:
+    classes: [vest, novest]
+    conf: 0.30
+
+tracking:
+  tracker: bytetrack.yaml
+  device: 0
+  imgsz: 640
+  persist: true
+  crop_padding: 0.30
+  temporal_window: 10
+
+display:
+  width: 1280
+  height: 720
