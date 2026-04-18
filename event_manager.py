@@ -2,295 +2,384 @@
 """
 event_manager.py
 ================
-Frame-bazlı alarm sonuçlarını event-bazlı mantığa dönüştür.
-Aynı alarm tekrar tekrar oluştuğunda yeni event sayma.
-Alarm başladığında, değiştiğinde, sona erdiğinde event üret.
+İhlal tabanlı event state machine.
+
+Kayıt mantığı:
+  - Sadece "new" (ihlal kesinleşti) kaydedilir ve frontend'e gönderilir.
+  - "resolved" tamamen dahili — dosyaya/socket'e yansımaz.
+
+Kişi kameradan çıkınca:
+  - Son history_frames frame'deki tespitlerin çoğunluğuna bakılır.
+  - Çoğunluk ihlalliyse → exit_grace_sec kadar ihlal aktif tutulur.
+  - Çoğunluk temizse → hemen silinir.
+
+process_frame() çıktısı:
+    {
+        "event_id"    : str | None,
+        "event_status": "idle" | "new" | "active" | "resolved",
+        "repeat_count": int,
+        "duration_sec": float,
+        "should_save" : bool,   # sadece "new"'da True
+        "change_reason": str,
+        "signature": {
+            "helmet_violation": bool,
+            "vest_violation"  : bool,
+            "mask_violation"  : bool,
+            "fire_detected"   : bool,
+        },
+        "person_violations": [
+            {"track_id": int, "violations": [...], "duration_sec": float},
+        ],
+    }
 """
+from __future__ import annotations
 
 import time
-from dataclasses import dataclass, asdict
-from typing import Dict, Optional, List
-from datetime import datetime
+from collections import deque
+from dataclasses import dataclass
+from typing import Any
 
+
+# ---------------------------------------------------------------------------
+# Eşik sabitleri
+# ---------------------------------------------------------------------------
+
+DEFAULT_NEW_CONFIRM_SEC:        float = 3.0
+DEFAULT_RESOLVED_CONFIRM_SEC:   float = 5.0
+DEFAULT_FIRE_CONFIRM_FRAMES:    int   = 2
+DEFAULT_FIRE_CLEAR_FRAMES:      int   = 2
+DEFAULT_HISTORY_FRAMES:         int   = 8
+DEFAULT_EXIT_GRACE_SEC:         float = 2.0
+DEFAULT_CONFIRM_GAP_TOLERANCE:  float = 1.0  # onay süresindeki tespit boşluğu toleransı (s)
+
+
+# ---------------------------------------------------------------------------
+# Veri yapıları
+# ---------------------------------------------------------------------------
 
 @dataclass
-class AlarmSignature:
-    """Bir andaki alarm durumunun hash'i"""
-    helmet_violation_count: int
-    vest_violation_count: int
-    fire_detected: bool
-    fire_confidence: float
+class PersonViolationRecord:
+    track_id:   int
+    violations: list[str]
+    since:      float
 
-    def __hash__(self):
-        return hash((self.helmet_violation_count, self.vest_violation_count,
-                    self.fire_detected, round(self.fire_confidence, 2)))
 
-    def __eq__(self, other):
-        if not isinstance(other, AlarmSignature):
-            return False
-        # Tolerans: count farkları <= 1
-        h_ok = abs(self.helmet_violation_count - other.helmet_violation_count) <= 1
-        v_ok = abs(self.vest_violation_count - other.vest_violation_count) <= 1
-        f_ok = self.fire_detected == other.fire_detected
-        c_ok = abs(self.fire_confidence - other.fire_confidence) <= 0.05
-        return h_ok and v_ok and f_ok and c_ok
+@dataclass(frozen=True)
+class EventSignature:
+    helmet_violation: bool
+    vest_violation:   bool
+    mask_violation:   bool
+    fire_detected:    bool
+
+    @property
+    def has_violation(self) -> bool:
+        return (
+            self.helmet_violation
+            or self.vest_violation
+            or self.mask_violation
+            or self.fire_detected
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "helmet_violation": self.helmet_violation,
+            "vest_violation"  : self.vest_violation,
+            "mask_violation"  : self.mask_violation,
+            "fire_detected"   : self.fire_detected,
+        }
 
 
 @dataclass
 class ActiveEvent:
-    """Aktif alarm event'i"""
-    event_id: str
-    start_time: float
-    last_seen: float
-    alarm_signature: AlarmSignature
+    event_id:     str
+    start_time:   float
+    last_seen:    float
+    signature:    EventSignature
     repeat_count: int = 1
-    status: str = "active"  # new, update, active, resolved
-    change_reason: str = "initial_alarm"
 
     @property
     def duration_sec(self) -> float:
         return self.last_seen - self.start_time
 
-    def is_same_alarm(self, new_signature: AlarmSignature) -> bool:
-        """Yeni signature aynı alarm mı?"""
-        return self.alarm_signature == new_signature
 
-    def is_alarm_changed(self, new_signature: AlarmSignature) -> bool:
-        """Aynı alarm mı ama biraz değişmiş mi?"""
-        if not self.is_same_alarm(new_signature):
-            return False
-        # Detaylar değişti mi?
-        h_changed = self.alarm_signature.helmet_violation_count != new_signature.helmet_violation_count
-        v_changed = self.alarm_signature.vest_violation_count != new_signature.vest_violation_count
-        c_changed = abs(self.alarm_signature.fire_confidence - new_signature.fire_confidence) > 0.05
-        return h_changed or v_changed or c_changed
+# ---------------------------------------------------------------------------
+# Ana sınıf
+# ---------------------------------------------------------------------------
 
-
-class EventManager:
+class PersonEventManager:
     """
-    Frame-bazlı CNN sonuçlarını event-bazlı alarmlara dönüştür.
+    İhlal tabanlı event yöneticisi.
 
-    Kullanım:
-        manager = EventManager(timeout_sec=10, event_id_prefix="evt")
-
-        event_info = manager.process_frame(helmet_result, vest_result, fire_result)
-        if event_info["event_status"] in ["new", "update", "resolved"]:
-            # Kaydet
-            pass
+    State machine: idle → new → active → resolved → idle
+    Sadece "new" kaydedilir. "resolved" dahili temizliktir.
     """
 
-    def __init__(self, timeout_sec: float = 10.0, event_id_prefix: str = "evt"):
-        self.timeout_sec = timeout_sec
-        self.event_id_prefix = event_id_prefix
-        self.event_counter = 0
+    def __init__(
+        self,
+        new_confirm_sec:        float = DEFAULT_NEW_CONFIRM_SEC,
+        resolved_confirm_sec:   float = DEFAULT_RESOLVED_CONFIRM_SEC,
+        fire_confirm_frames:    int   = DEFAULT_FIRE_CONFIRM_FRAMES,
+        fire_clear_frames:      int   = DEFAULT_FIRE_CLEAR_FRAMES,
+        event_id_prefix:        str   = "evt",
+        check_helmet:           bool  = True,
+        check_vest:             bool  = True,
+        check_mask:             bool  = False,
+        history_frames:         int   = DEFAULT_HISTORY_FRAMES,
+        exit_grace_sec:         float = DEFAULT_EXIT_GRACE_SEC,
+        confirm_gap_tolerance:  float = DEFAULT_CONFIRM_GAP_TOLERANCE,
+    ) -> None:
+        self.new_confirm_sec        = new_confirm_sec
+        self.resolved_confirm_sec   = resolved_confirm_sec
+        self.fire_confirm_frames    = fire_confirm_frames
+        self.fire_clear_frames      = fire_clear_frames
+        self.event_id_prefix        = event_id_prefix
+        self.check_helmet           = check_helmet
+        self.check_vest             = check_vest
+        self.check_mask             = check_mask
+        self.history_frames         = history_frames
+        self.exit_grace_sec         = exit_grace_sec
+        self.confirm_gap_tolerance  = confirm_gap_tolerance
 
-        self.active_event: Optional[ActiveEvent] = None
-        self.last_frame_had_alarm = False
+        self._counter: int               = 0
+        self._active:  ActiveEvent | None = None
 
-    def _get_next_event_id(self) -> str:
-        """Event ID üret"""
-        self.event_counter += 1
-        return f"{self.event_id_prefix}_{self.event_counter:04d}"
+        self._violation_since:      float | None = None
+        self._last_violation_seen:  float | None = None  # onay süresinde son ihlal zamanı
+        self._clear_since:          float | None = None
 
-    def _extract_signature(self, helmet_result: Dict, vest_result: Dict,
-                          fire_result: Dict) -> AlarmSignature:
-        """CNN sonuçlarından alarm signature üret"""
-        h_viol = helmet_result.get("warning_count", 0)
-        v_viol = vest_result.get("warning_count", 0)
-        f_detect = fire_result.get("detection_count", 0) > 0
-        f_conf = 0.0
+        self._fire_pending:   int  = 0
+        self._fire_clear_cnt: int  = 0
+        self._fire_confirmed: bool = False
 
-        if f_detect and fire_result.get("detections"):
-            f_conf = fire_result["detections"][0].get("confidence", 0.0)
+        # Per-person violation state
+        self._person_states:     dict[int, PersonViolationRecord] = {}
+        # Per-person detection history (son N frame'de ihlal var mıydı)
+        self._person_history:    dict[int, deque] = {}
+        # Kameradan çıkan kişi → çıkış zamanı (grace period)
+        self._person_exit_times: dict[int, float] = {}
 
-        return AlarmSignature(
-            helmet_violation_count=h_viol,
-            vest_violation_count=v_viol,
-            fire_detected=f_detect,
-            fire_confidence=f_conf
-        )
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
-    def _has_any_alarm(self, signature: AlarmSignature) -> bool:
-        """Alarm var mı?"""
-        return (signature.helmet_violation_count > 0 or
-                signature.vest_violation_count > 0 or
-                signature.fire_detected)
+    def process_frame(
+        self,
+        persons_with_ppe: list[dict[str, Any]],
+        fire_raw: bool = False,
+    ) -> dict[str, Any]:
+        self._update_person_states(persons_with_ppe)
+        self._fire_confirmed = self._update_fire(fire_raw)
+        sig = self._build_signature(self._fire_confirmed)
 
-    def process_frame(self, helmet_result: Dict, vest_result: Dict,
-                     fire_result: Dict) -> Dict:
-        """
-        Frame işle ve event bilgisini döndür.
-
-        Returns:
-            {
-                "event_id": str,
-                "event_status": str,  # "no_alarm", "new", "update", "active", "resolved"
-                "alarm_signature": AlarmSignature,
-                "repeat_count": int,
-                "duration_sec": float,
-                "change_reason": str,
-                "should_save": bool,
-                ...other fields...
-            }
-        """
-        current_time = time.time()
-        signature = self._extract_signature(helmet_result, vest_result, fire_result)
-        has_alarm = self._has_any_alarm(signature)
-
-        result = {
-            "event_id": None,
-            "event_status": "no_alarm",
-            "alarm_signature": signature,
-            "repeat_count": 0,
-            "duration_sec": 0.0,
-            "change_reason": None,
-            "should_save": False,
-        }
-
-        # ── DURUM 1: Aktif event yok ────────────────────────────
-        if self.active_event is None:
-            if has_alarm:
-                # Yeni alarm başladı
-                self.active_event = ActiveEvent(
-                    event_id=self._get_next_event_id(),
-                    start_time=current_time,
-                    last_seen=current_time,
-                    alarm_signature=signature,
-                    repeat_count=1,
-                    status="new",
-                    change_reason="initial_alarm"
-                )
-                result.update({
-                    "event_id": self.active_event.event_id,
-                    "event_status": "new",
-                    "repeat_count": 1,
-                    "duration_sec": 0.0,
-                    "change_reason": "initial_alarm",
-                    "should_save": True,
-                })
-                self.last_frame_had_alarm = True
-            else:
-                # Alarm yok, event yok → hiçbir şey yapma
-                self.last_frame_had_alarm = False
-
-        # ── DURUM 2: Aktif event var ────────────────────────────
+        if self._active is None:
+            result = self._handle_idle(sig)
         else:
-            if has_alarm:
-                # Alarm hala var
-                if self.active_event.is_same_alarm(signature):
-                    # Aynı alarm, frame tekrarı
-                    self.active_event.repeat_count += 1
-                    self.active_event.last_seen = current_time
-                    self.active_event.status = "active"
-                    result.update({
-                        "event_id": self.active_event.event_id,
-                        "event_status": "active",
-                        "repeat_count": self.active_event.repeat_count,
-                        "duration_sec": self.active_event.duration_sec,
-                        "change_reason": "repeat",
-                        "should_save": False,
-                    })
-                    self.last_frame_had_alarm = True
+            result = self._handle_active(sig)
 
-                elif self.active_event.is_alarm_changed(signature):
-                    # Aynı alarm ama detaylar değişti
-                    old_signature = self.active_event.alarm_signature
-                    self.active_event.alarm_signature = signature
-                    self.active_event.repeat_count += 1
-                    self.active_event.last_seen = current_time
-                    self.active_event.status = "update"
-
-                    # Değişim sebebini belirle
-                    h_diff = signature.helmet_violation_count - old_signature.helmet_violation_count
-                    v_diff = signature.vest_violation_count - old_signature.vest_violation_count
-
-                    if h_diff > 0:
-                        change_reason = f"helmet_violation_increased_{h_diff}"
-                    elif h_diff < 0:
-                        change_reason = f"helmet_violation_decreased_{-h_diff}"
-                    elif v_diff > 0:
-                        change_reason = f"vest_violation_increased_{v_diff}"
-                    elif v_diff < 0:
-                        change_reason = f"vest_violation_decreased_{-v_diff}"
-                    else:
-                        change_reason = "fire_severity_changed"
-
-                    self.active_event.change_reason = change_reason
-                    result.update({
-                        "event_id": self.active_event.event_id,
-                        "event_status": "update",
-                        "repeat_count": self.active_event.repeat_count,
-                        "duration_sec": self.active_event.duration_sec,
-                        "change_reason": change_reason,
-                        "should_save": True,
-                    })
-                    self.last_frame_had_alarm = True
-
-                else:
-                    # Tamamen yeni alarm (eski event kapatılacak)
-                    # Eski event'i kayıt ettirme (caller yapacak)
-                    # Yeni event başlat
-                    self.active_event = ActiveEvent(
-                        event_id=self._get_next_event_id(),
-                        start_time=current_time,
-                        last_seen=current_time,
-                        alarm_signature=signature,
-                        repeat_count=1,
-                        status="new",
-                        change_reason="new_alarm_started"
-                    )
-                    result.update({
-                        "event_id": self.active_event.event_id,
-                        "event_status": "new",
-                        "repeat_count": 1,
-                        "duration_sec": 0.0,
-                        "change_reason": "new_alarm_started",
-                        "should_save": True,
-                    })
-                    self.last_frame_had_alarm = True
-
-            else:
-                # Alarm bitmiş, event var
-                # Timeout kontrol et
-                if current_time - self.active_event.last_seen > self.timeout_sec:
-                    # Event sona ermiş
-                    event_copy = self.active_event
-                    event_copy.status = "resolved"
-                    result.update({
-                        "event_id": event_copy.event_id,
-                        "event_status": "resolved",
-                        "repeat_count": event_copy.repeat_count,
-                        "duration_sec": event_copy.duration_sec,
-                        "change_reason": "alarm_resolved",
-                        "should_save": True,
-                        "resolved_event": event_copy,
-                    })
-                    self.active_event = None
-                    self.last_frame_had_alarm = False
-                else:
-                    # Henüz timeout olmadı, bekleme durumunda
-                    result.update({
-                        "event_id": self.active_event.event_id,
-                        "event_status": "active",
-                        "repeat_count": self.active_event.repeat_count,
-                        "duration_sec": self.active_event.duration_sec,
-                        "change_reason": "waiting_for_timeout",
-                        "should_save": False,
-                    })
-
+        result["person_violations"] = self._get_person_violations()
         return result
 
-    def get_active_event(self) -> Optional[ActiveEvent]:
-        """Aktif event'i döndür"""
-        return self.active_event
+    # ------------------------------------------------------------------
+    # State handlers
+    # ------------------------------------------------------------------
 
-    def force_resolve_event(self) -> Optional[ActiveEvent]:
-        """Aktif event'i zorla kapat (video sonunda)"""
-        if self.active_event:
-            self.active_event.status = "resolved"
-            event_copy = self.active_event
-            self.active_event = None
-            return event_copy
-        return None
+    def _handle_idle(self, sig: EventSignature) -> dict[str, Any]:
+        now = time.monotonic()
 
+        if not sig.has_violation:
+            if self._violation_since is not None:
+                # Referans repo mantığı: brief tespit boşluklarında sayacı sıfırlama.
+                # Son ihlalden bu yana confirm_gap_tolerance saniyeyi geçmediyse bekle.
+                last_seen = self._last_violation_seen or self._violation_since
+                if now - last_seen > self.confirm_gap_tolerance:
+                    self._violation_since     = None
+                    self._last_violation_seen = None
+            return self._out(None, "idle", 0, 0.0, False, "no_violation", sig)
 
+        self._last_violation_seen = now
+        if self._violation_since is None:
+            self._violation_since = now
+
+        elapsed = now - self._violation_since
+        if elapsed >= self.new_confirm_sec:
+            self._violation_since     = None
+            self._last_violation_seen = None
+            return self._open_event(sig)
+
+        return self._out(
+            None, "idle", 0, 0.0, False,
+            f"confirming {elapsed:.1f}s/{self.new_confirm_sec:.1f}s", sig,
+        )
+
+    def _handle_active(self, sig: EventSignature) -> dict[str, Any]:
+        ev  = self._active
+        now = time.monotonic()
+
+        if not sig.has_violation:
+            if self._clear_since is None:
+                self._clear_since = now
+            elapsed = now - self._clear_since
+            if elapsed >= self.resolved_confirm_sec:
+                return self._resolve(ev, sig)
+            ev.last_seen    = now
+            ev.repeat_count += 1
+            return self._out(
+                ev.event_id, "active", ev.repeat_count, ev.duration_sec, False,
+                f"confirming_resolved {elapsed:.1f}s/{self.resolved_confirm_sec:.1f}s",
+                ev.signature,
+            )
+
+        self._clear_since   = None
+        ev.last_seen        = now
+        ev.repeat_count    += 1
+        ev.signature        = sig
+        return self._out(ev.event_id, "active", ev.repeat_count, ev.duration_sec, False, "ongoing", sig)
+
+    # ------------------------------------------------------------------
+    # Event lifecycle
+    # ------------------------------------------------------------------
+
+    def _open_event(self, sig: EventSignature) -> dict[str, Any]:
+        self._counter += 1
+        now = time.monotonic()
+        self._active = ActiveEvent(
+            event_id     = f"{self.event_id_prefix}_{self._counter:04d}",
+            start_time   = now,
+            last_seen    = now,
+            signature    = sig,
+            repeat_count = 1,
+        )
+        self._clear_since = None
+        return self._out(self._active.event_id, "new", 1, 0.0, True, "initial_violation", sig)
+
+    def _resolve(self, ev: ActiveEvent, sig: EventSignature) -> dict[str, Any]:
+        self._active      = None
+        self._clear_since = None
+        # should_save=False — resolved frontend'e/diske yansımaz
+        return self._out(ev.event_id, "resolved", ev.repeat_count, ev.duration_sec, False, "alarm_cleared", sig)
+
+    # ------------------------------------------------------------------
+    # Per-person violation state + exit history
+    # ------------------------------------------------------------------
+
+    def _update_person_states(self, persons_with_ppe: list[dict[str, Any]]) -> None:
+        now = time.monotonic()
+        current_ids: set[int] = set()
+
+        for p in persons_with_ppe:
+            tid = p.get("track_id")
+            if tid is None:
+                continue
+            current_ids.add(tid)
+
+            # Tekrar göründüyse exit grace'i iptal et
+            self._person_exit_times.pop(tid, None)
+
+            # Geçmiş güncelle
+            if tid not in self._person_history:
+                self._person_history[tid] = deque(maxlen=self.history_frames)
+            viols = p.get("violations", [])
+            self._person_history[tid].append(bool(viols))
+
+            # Violation state güncelle
+            if viols:
+                if tid not in self._person_states:
+                    self._person_states[tid] = PersonViolationRecord(tid, viols, now)
+                else:
+                    self._person_states[tid].violations = viols
+            else:
+                self._person_states.pop(tid, None)
+
+        # Kameradan çıkan kişiler
+        for tid in list(self._person_history.keys()):
+            if tid in current_ids:
+                continue
+
+            if tid not in self._person_exit_times:
+                # Yeni çıkış — sadece geçmişe bak (son frame gürültüsünü yok say)
+                history = self._person_history[tid]
+                violation_ratio = sum(history) / len(history) if history else 0.0
+
+                if violation_ratio >= 0.5:
+                    # Geçmişin çoğunluğu ihlalliydi → grace period başlat
+                    self._person_exit_times[tid] = now
+                else:
+                    # Geçmişin çoğunluğu temizdi → hemen sil
+                    self._person_states.pop(tid, None)
+                    del self._person_history[tid]
+                continue
+
+            # Grace period doldu mu?
+            if now - self._person_exit_times[tid] >= self.exit_grace_sec:
+                self._person_states.pop(tid, None)
+                self._person_history.pop(tid, None)
+                del self._person_exit_times[tid]
+
+    def _get_person_violations(self) -> list[dict[str, Any]]:
+        now = time.monotonic()
+        return [
+            {
+                "track_id":     rec.track_id,
+                "violations":   rec.violations,
+                "duration_sec": round(now - rec.since, 1),
+            }
+            for rec in self._person_states.values()
+            if rec.track_id not in self._person_exit_times  # grace period'dakiler hariç
+        ]
+
+    # ------------------------------------------------------------------
+    # Yangın debounce
+    # ------------------------------------------------------------------
+
+    def _update_fire(self, raw: bool) -> bool:
+        if raw:
+            self._fire_pending   += 1
+            self._fire_clear_cnt  = 0
+            if self._fire_pending >= self.fire_confirm_frames:
+                self._fire_confirmed = True
+        else:
+            self._fire_clear_cnt += 1
+            self._fire_pending    = 0
+            if self._fire_clear_cnt >= self.fire_clear_frames:
+                self._fire_confirmed = False
+        return self._fire_confirmed
+
+    # ------------------------------------------------------------------
+    # Signature — _person_states'ten türetilir
+    # ------------------------------------------------------------------
+
+    def _build_signature(self, fire_detected: bool) -> EventSignature:
+        """
+        Signature doğrudan _person_states'ten üretilir (exit grace dahil).
+        Bool-based: kaç kişi değil, hangi ihlal tipi var.
+        """
+        helmet = self.check_helmet and any(
+            "no_helmet" in rec.violations for rec in self._person_states.values()
+        )
+        vest = self.check_vest and any(
+            "no_vest" in rec.violations for rec in self._person_states.values()
+        )
+        mask = self.check_mask and any(
+            "no_mask" in rec.violations for rec in self._person_states.values()
+        )
+        return EventSignature(bool(helmet), bool(vest), bool(mask), fire_detected)
+
+    @staticmethod
+    def _out(
+        event_id:      str | None,
+        event_status:  str,
+        repeat_count:  int,
+        duration_sec:  float,
+        should_save:   bool,
+        change_reason: str,
+        sig:           EventSignature,
+    ) -> dict[str, Any]:
+        return {
+            "event_id"    : event_id,
+            "event_status": event_status,
+            "repeat_count": repeat_count,
+            "duration_sec": round(duration_sec, 1),
+            "should_save" : should_save,
+            "change_reason": change_reason,
+            "signature"   : sig.to_dict(),
+        }

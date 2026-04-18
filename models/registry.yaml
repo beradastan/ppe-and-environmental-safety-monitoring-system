@@ -1,0 +1,267 @@
+# models/registry.yaml
+# =====================
+# PPE model kaydı — her modelin dataset kaynağı ve sınıfları belgelenmiştir.
+# benchmark_models.py bu dosyayı okuyarak karşılaştırma yapar.
+#
+# Kendi ajanlarını eğitmek için "training_dataset" alanındaki linklere bak.
+# "role" alanı: "ppe" (PPE tespiti) | "person" (kişi takibi)
+# "status": "available" | "download_required"
+
+models:
+
+  # ─── Mevcut modeller ───────────────────────────────────────────────────────
+
+  - id: vinayak_ppe
+    file: models/pretrained/vinayakmane/ppe.pt
+    role: ppe
+    status: available
+    architecture: YOLOv8
+    source_repo: https://github.com/Vinayakmane47/PPE_detection_YOLO
+    classes:
+      - Hardhat
+      - Mask
+      - NO-Hardhat
+      - NO-Mask
+      - NO-Safety Vest
+      - Person
+      - Safety Cone
+      - Safety Vest
+      - machinery
+      - vehicle
+    ppe_classes:
+      helmet_present: [Hardhat]
+      helmet_missing: [NO-Hardhat]
+      vest_present:   [Safety Vest]
+      vest_missing:   [NO-Safety Vest]
+      mask_present:   [Mask]
+      mask_missing:   [NO-Mask]
+    training_dataset:
+      name: Construction Site Safety
+      source: Roboflow Universe
+      url: https://universe.roboflow.com/roboflow-universe-projects/construction-site-safety/dataset/27
+      version: v27 YOLOv8s
+      license: CC BY 4.0
+      images: 2801
+      train: 2605
+      valid: 114
+      test: 82
+      image_size: 640x640
+      notes: >
+        Aynı dataset, v27 sürümü. Hardhat + Vest eğitimi için referans dataset.
+        Gelecekte ayrı Hardhat ve Vest ajanları bu dataset ile eğitilecek.
+    notes: >
+      Vinayak PPE pipeline referans modeli. ppe.pt kullanılıyor (best.pt değil,
+      eski models.yolo format uyumsuzluğu var). wesjos_agent_demo.py için seçildi.
+
+  - id: person_seg_yolov8s
+    file: models/pretrained/person/person_yolov8s-seg.pt
+    role: person
+    status: available
+    architecture: YOLOv8s-seg
+    classes: [person]
+    training_dataset:
+      name: COCO (person sınıfı, segmentasyon)
+      source: ultralytics/COCO
+      url: https://cocodataset.org
+      notes: Genel amaçlı insan tespiti + segmentasyon. COCO class 0 = person.
+    notes: wesjos_agent_demo.py person tracking için kullanılıyor.
+
+  - id: voxdroid_200ep
+    file: models/voxdroid_200epoch_best.pt
+    role: ppe
+    status: available
+    architecture: YOLOv8
+    epochs: 200
+    classes:
+      - Hardhat
+      - Mask
+      - NO-Hardhat
+      - NO-Mask
+      - NO-Safety Vest
+      - Person
+      - Safety Cone
+      - Safety Vest
+      - machinery
+      - vehicle
+    ppe_classes:          # PPEAgent'in kullandığı sınıflar
+      helmet_present:  [Hardhat]
+      helmet_missing:  [NO-Hardhat]
+      vest_present:    [Safety Vest]
+      vest_missing:    [NO-Safety Vest]
+      mask_present:    [Mask]
+      mask_missing:    [NO-Mask]
+    training_dataset:
+      name: Construction Site Safety
+      source: Roboflow Universe
+      url: https://universe.roboflow.com/roboflow-universe-projects/construction-site-safety
+      images: ~3000
+      notes: >
+        Şantiye ortamı, kask + yelek + maske + araç sınıfları.
+        Çeşitli açı ve ışık koşulları var. Küçük dataset, gürültülü etiketler.
+    notes: Projede halihazırda kullanılan model. 200 epoch.
+
+  - id: person_yakhyo
+    file: models/yakhyo_yolov8n_best.pt
+    role: person
+    status: available
+    architecture: YOLOv8n
+    classes: [person]
+    training_dataset:
+      name: COCO (person sınıfı)
+      source: ultralytics/COCO
+      url: https://cocodataset.org
+      images: ~118000 (person subset)
+      notes: Genel amaçlı insan tespiti. ByteTrack ile birlikte kullanılıyor.
+    notes: PersonTrackingAgent için mevcut model.
+
+  # ─── Test edilecek modeller (indirme gerekli) ──────────────────────────────
+
+  - id: hansung_yolov8
+    file: models/hansung_yolov8_ppe.pt
+    role: ppe
+    status: available
+    architecture: YOLOv8n
+    size_mb: 6.0
+    hf_repo: Hansung-Cho/yolov8-ppe-detection
+    classes:
+      - Hardhat
+      - Mask
+      - NO-Hardhat
+      - NO-Mask
+      - NO-Safety Vest
+      - Person
+      - Safety Cone
+      - Safety Vest
+      - machinery
+      - vehicle
+    ppe_classes:
+      helmet_present: [Hardhat]
+      helmet_missing: [NO-Hardhat]
+      vest_present:   [Safety Vest]
+      vest_missing:   [NO-Safety Vest]
+      mask_present:   [Mask]
+      mask_missing:   [NO-Mask]
+    training_dataset:
+      name: Construction Site Safety
+      source: Roboflow Universe
+      url: https://universe.roboflow.com/roboflow-universe-projects/construction-site-safety
+      images: ~3000
+      notes: >
+        Voxdroid ile aynı dataset, farklı eğitim hiperparametreleri.
+        Sınıf yapısı birebir aynı — fark inference kalitesinde olacak.
+
+  - id: hexmon_yolo
+    file: models/hexmon_yolo_ppe.pt
+    role: ppe
+    status: available
+    architecture: YOLOv8l
+    size_mb: 49.6
+    hf_repo: Hexmon/vyra-yolo-ppe-detection
+    classes:
+      - Fall-Detected
+      - Gloves
+      - Goggles
+      - Hardhat
+      - Ladder
+      - Mask
+      - NO-Gloves
+      - NO-Goggles
+      - NO-Hardhat
+      - NO-Mask
+      - NO-Safety Vest
+      - Person
+      - Safety Cone
+      - Safety Vest
+    ppe_classes:
+      helmet_present: [Hardhat]
+      helmet_missing: [NO-Hardhat]
+      vest_present:   [Safety Vest]
+      vest_missing:   [NO-Safety Vest]
+      mask_present:   [Mask]
+      mask_missing:   [NO-Mask]
+    training_dataset:
+      name: Extended Construction PPE
+      source: Roboflow Universe (genişletilmiş)
+      url: https://huggingface.co/Hexmon/vyra-yolo-ppe-detection
+      images: bilinmiyor
+      notes: >
+        YOLOv8l (büyük model, 49MB). Eldiven, gözlük, düşme tespiti ekstra.
+        Ağır ama en kapsamlı PPE sınıfları. GPU gerektiriyor.
+        Kendi ajanlarını eldiven/gözlük için bu datasetten eğitebilirsin.
+
+  - id: amirt_yolov8
+    file: models/amirt_yolov8_ppe.pt
+    role: ppe
+    status: available
+    architecture: YOLOv8n
+    size_mb: 6.0
+    hf_repo: AmirT/ppe-detection-yolov8
+    classes:
+      - helmet
+      - no-helmet
+      - no-vest
+      - person
+      - vest
+    ppe_classes:
+      helmet_present: [helmet]
+      helmet_missing: [no-helmet]
+      vest_present:   [vest]
+      vest_missing:   [no-vest]
+    training_dataset:
+      name: PPE Detection (simplified)
+      source: Roboflow Universe
+      url: https://huggingface.co/AmirT/ppe-detection-yolov8
+      images: bilinmiyor
+      notes: >
+        5 sınıf, sadece kask ve yelek. Maske yok, araç yok.
+        Hafif (6MB) ve odaklı — crop modunda hızlı çalışır.
+        Kendi helmet+vest ajanı için güzel referans yapısı.
+
+  - id: tanish_yolov8n
+    file: models/tanish_yolov8n_ppe.pt
+    role: ppe
+    status: available
+    detection_mode: presence_only   # sadece "var" sınıfları, "yok" sınıfı yok
+    architecture: YOLOv8n
+    size_mb: 5.4
+    hf_repo: Tanishjain9/yolov8n-ppe-detection-6classes
+    classes:
+      - Gloves
+      - Vest
+      - goggles
+      - helmet
+      - mask
+      - safety_shoe
+    ppe_classes:
+      helmet_present: [helmet]
+      vest_present:   [Vest]
+      mask_present:   [mask]
+      # NOT: Bu model "no-*" sınıfı içermez.
+      # Tespit yoksa "unknown" döner, ihlal sayılmaz.
+      # Eğitim datasetinde absence etiketlenmemiş.
+    training_dataset:
+      name: PPE 6-Class (presence only)
+      source: Roboflow Universe
+      url: https://huggingface.co/Tanishjain9/yolov8n-ppe-detection-6classes
+      images: bilinmiyor
+      notes: >
+        SADECE "var" sınıfları — kask, yelek, eldiven, gözlük, ayakkabı.
+        İhlal tespiti için uygun DEĞİL (absence label yok).
+        Referans olarak dahil edildi; benchmark'ta ihlal üretmez.
+
+# ─── Kendi ajanlarını eğitme planı ─────────────────────────────────────────
+#
+# Hedef: Ayrı uzman ajanlar (crop mimarisiyle paralel çalışır)
+#
+#   ┌────────────────┬──────────────────────────────────┬──────────────┐
+#   │ Ajan           │ Önerilen Dataset                  │ Boyut hedefi │
+#   ├────────────────┼──────────────────────────────────┼──────────────┤
+#   │ HelmetAgent    │ SHWD ~7500 görüntü               │ YOLOv8n/s    │
+#   │                │ github.com/njvisionpower/         │              │
+#   │                │   Safety-Helmet-Wearing-Dataset   │              │
+#   ├────────────────┼──────────────────────────────────┼──────────────┤
+#   │ VestAgent      │ amirt_yolov8 dataseti (Roboflow) │ YOLOv8n/s    │
+#   │                │ veya hexmon dataseti              │              │
+#   ├────────────────┼──────────────────────────────────┼──────────────┤
+#   │ PersonAgent    │ COCO person (mevcut)              │ YOLOv8n ✓   │
+#   └────────────────┴──────────────────────────────────┴──────────────┘
