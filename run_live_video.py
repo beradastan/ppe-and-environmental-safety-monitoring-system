@@ -99,6 +99,11 @@ def best_det(model: YOLO, result, allowed_ids: list[int], min_conf: float) -> tu
 
 
 def vote(q: deque, min_known: int = 3) -> str:
+    if not q:
+        return "unknown"
+    result = Counter(q).most_common(1)[0][0]
+    if result != "unknown":
+        return result
     known = [v for v in q if v != "unknown"]
     if len(known) < min_known:
         return "unknown"
