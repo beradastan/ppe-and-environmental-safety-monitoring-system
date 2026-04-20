@@ -246,10 +246,11 @@ def run(args):
     cv2.namedWindow("Factory Safety", cv2.WINDOW_NORMAL)
     cv2.resizeWindow("Factory Safety", 1280, 720)
 
-    frame_idx   = 0
-    event_count = 0
-    last_event  = {"event_id": None, "event_status": "idle", "repeat_count": 0}
-    last_viols  = []
+    frame_idx        = 0
+    event_count      = 0
+    last_event       = {"event_id": None, "event_status": "idle", "repeat_count": 0}
+    last_viols       = []
+    prev_violator_ids: set[int] = set()  # ihlalci seti değişimini izlemek için
 
     print("Basladi. ESC = cikis.\n")
 
@@ -320,9 +321,23 @@ def run(args):
             last_event = event_info
             last_viols = event_info.get("person_violations", [])
 
+            curr_violator_ids = {p["track_id"] for p in last_viols}
+
+            # "new" → ilk ihlal kaydı
             if event_info["should_save"] and event_info.get("event_id"):
                 event_count += 1
                 save_event(event_info, draw_frame, results_dir, update_counters)
+
+            # ihlalci seti daraldı (biri çıktı) ama hâlâ ihlal devam ediyor → update kaydet
+            elif (
+                event_info["event_status"] == "active"
+                and event_info.get("event_id")
+                and prev_violator_ids - curr_violator_ids  # biri çıktı
+                and curr_violator_ids                       # ama başkası kaldı
+            ):
+                save_event(event_info, draw_frame, results_dir, update_counters)
+
+            prev_violator_ids = curr_violator_ids
 
             # --- HUD ---
             draw_hud(
