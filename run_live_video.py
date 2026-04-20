@@ -2,20 +2,25 @@
 """
 run_live_video.py
 =================
-Canlı video akışı için event-bazlı alarm yönetimi.
+Crop-tabanlı PPE pipeline — nihai modeller:
+  Helmet : crophelmet_agent_final_best.pt  pad=0.80  conf=0.20
+  Vest   : vest_agent_final_best.pt        pad=0.60  conf=0.30
 
-Kullanım:
+Kullanim:
     python run_live_video.py
+    python run_live_video.py --video test/nohat_test.mp4
     python run_live_video.py --camera 1
-    python run_live_video.py --video test/ppe_test1.mp4
-    python run_live_video.py --offline
 """
+from __future__ import annotations
 
+import argparse
+import json
 import sys
+import time
 import os
 import cv2
-import json
-import time
+from collections import Counter, defaultdict, deque
+from datetime import datetime
 from pathlib import Path
 
 try:
@@ -24,379 +29,342 @@ try:
 except ImportError:
     _DEVICE = "cpu"
 
-# UTF-8 çıktı
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 os.chdir(Path(__file__).parent)
 
-# ── Renkler ────────────────────────────────────────────────────────
-GREEN = "\033[92m"
-YELLOW = "\033[93m"
-RED = "\033[91m"
-CYAN = "\033[96m"
-BOLD = "\033[1m"
-RESET = "\033[0m"
+from ultralytics import YOLO
+
+# ---------------------------------------------------------------------------
+# Sabitler
+# ---------------------------------------------------------------------------
+
+HELMET_MODEL_PATH = "models/crophelmet_agent_final_best.pt"
+VEST_MODEL_PATH   = "models/vest_agent_final_best.pt"
+FIRE_MODEL_PATH   = "models/fire_best.pt"
+PERSON_MODEL_PATH = "models/pretrained/person/person_yolov8s-seg.pt"
+
+HELMET_PAD   = 0.80
+VEST_PAD     = 0.60
+HELMET_CONF  = 0.20
+VEST_CONF    = 0.30
+FIRE_CONF    = 0.50
+PERSON_CONF  = 0.25
+IMGSZ        = 640
+TRACKER      = "bytetrack.yaml"
+TEMPORAL_WIN = 10
+
+HELMET_CLASSES = ["Hardhat", "NO-Hardhat"]
+VEST_CLASSES   = ["Safety Vest", "NO-Safety Vest"]
+FIRE_CLASS     = "fire"
+
+# Ekran renkleri (BGR)
+COLOR_OK      = (0, 200, 0)
+COLOR_WARN    = (0, 100, 255)
+COLOR_DANGER  = (0, 0, 230)
+COLOR_UNKNOWN = (0, 200, 255)
+COLOR_FIRE    = (0, 60, 255)
+
+# ---------------------------------------------------------------------------
+# Yardimcilar
+# ---------------------------------------------------------------------------
+
+def class_ids(model: YOLO, names: list[str]) -> list[int]:
+    name_to_id = {n: cid for cid, n in model.names.items()}
+    missing = [n for n in names if n not in name_to_id]
+    if missing:
+        raise ValueError(f"Model'de eksik class: {missing} | Mevcut: {list(model.names.values())}")
+    return [name_to_id[n] for n in names]
 
 
-def draw_detections(frame, hr, vr, fr):
-    """
-    Ajan tespit sonuçlarını frame üzerine çiz.
-    Bbox'lar 640x640 preprocessed space'den orijinal frame boyutuna scale edilir.
-    Tespit pipeline'ına dokunulmaz; sadece görselleştirme.
-    """
+def crop_pad(frame, x1, y1, x2, y2, pad: float):
     h, w = frame.shape[:2]
-    sx, sy = w / 640.0, h / 640.0  # scale faktörleri
+    pw = int(max(1, x2 - x1) * pad)
+    ph = int(max(1, y2 - y1) * pad)
+    return frame[max(0, y1 - ph):min(h, y2 + ph), max(0, x1 - pw):min(w, x2 + pw)]
 
-    # (items_list, renk, kalınlık)
-    layers = [
-        (hr.get("detections", []), (0, 200,   0), 2),   # Hardhat      → yeşil
-        (hr.get("warnings",    []), (0,   0, 220), 2),   # NO-Hardhat   → kırmızı
-        (vr.get("detections", []), (200, 200,  0), 2),   # Safety Vest  → mavi-yeşil
-        (vr.get("warnings",    []), (0, 140, 255), 2),   # NO-Vest      → turuncu
-        (fr.get("detections", []), (0,  80, 255), 2),   # Fire         → kırmızı-turuncu
-    ]
 
+def best_det(model: YOLO, result, allowed_ids: list[int], min_conf: float) -> tuple[str, float]:
+    best: tuple[str, float] | None = None
+    for box in result.boxes:
+        cid  = int(box.cls[0])
+        conf = float(box.conf[0])
+        if cid not in allowed_ids or conf < min_conf:
+            continue
+        label = str(model.names[cid])
+        if best is None or conf > best[1]:
+            best = (label, conf)
+    return best if best else ("unknown", 0.0)
+
+
+def vote(q: deque) -> str:
+    if not q:
+        return "unknown"
+    return Counter(q).most_common(1)[0][0]
+
+
+def compliance_color(hvote: str, vvote: str) -> tuple[tuple[int, int, int], list[str]]:
+    h_ok   = hvote == "Hardhat"
+    v_ok   = vvote == "Safety Vest"
+    h_miss = hvote == "NO-Hardhat"
+    v_miss = vvote == "NO-Safety Vest"
+    viols  = []
+    if h_miss:
+        viols.append("no_helmet")
+    if v_miss:
+        viols.append("no_vest")
+    if h_ok and v_ok:
+        return COLOR_OK, []
+    if h_miss and v_miss:
+        return COLOR_DANGER, viols
+    if h_miss or v_miss:
+        return COLOR_WARN, viols
+    return COLOR_UNKNOWN, viols
+
+
+def draw_box(frame, x1, y1, x2, y2, text: str, color):
+    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 3)
+    scale, thick, pad = 0.60, 2, 6
+    (tw, th), bl = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, thick)
+    bx1 = max(0, x1)
+    by2 = max(th + bl + pad * 2, y1)
+    by1 = by2 - th - bl - pad * 2
+    bx2 = min(frame.shape[1] - 1, bx1 + tw + pad * 2)
+    cv2.rectangle(frame, (bx1, by1), (bx2, by2), color, -1)
+    lum = 0.114 * color[0] + 0.587 * color[1] + 0.299 * color[2]
+    fg  = (0, 0, 0) if lum > 140 else (255, 255, 255)
+    cv2.putText(frame, text, (bx1 + pad, by2 - pad - bl),
+                cv2.FONT_HERSHEY_SIMPLEX, scale, fg, thick, cv2.LINE_AA)
+
+
+def draw_hud(frame, event_id, status, repeat, viols_per_person):
     font = cv2.FONT_HERSHEY_SIMPLEX
-    for items, color, thickness in layers:
-        for det in items:
-            x1, y1, x2, y2 = det["bbox"]
-            x1, y1, x2, y2 = int(x1 * sx), int(y1 * sy), int(x2 * sx), int(y2 * sy)
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
-            label = f"{det['label']} {det['confidence']:.2f}"
-            cv2.putText(frame, label, (x1, max(y1 - 6, 12)), font, 0.55, color, 2)
-
-    return frame
+    color = (0, 0, 200) if status in ("new", "active") else (0, 200, 0)
+    cv2.putText(frame, f"EVENT: {event_id or 'N/A'} [{status.upper()}]",
+                (10, 30), font, 0.7, color, 2)
+    cv2.putText(frame, f"Repeat: {repeat}  Active violations: {len(viols_per_person)}",
+                (10, 58), font, 0.6, color, 2)
 
 
-def setup_display_frame(frame, event_info):
-    """
-    Frame üzerine bilgi yaz (ekran gösterimi için).
-    """
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = 0.7
-    thickness = 2
+# ---------------------------------------------------------------------------
+# Event kayit
+# ---------------------------------------------------------------------------
 
-    event_id = event_info.get("event_id", "N/A")
-    event_status = event_info.get("event_status", "idle").upper()
+def save_event(event_info: dict, frame, results_dir: Path, update_counters: dict) -> None:
+    event_id     = event_info["event_id"]
+    event_status = event_info["event_status"]
 
-    if event_status in ["NEW", "UPDATE"]:
-        color = (0, 0, 255)  # Kırmızı
-    elif event_status == "RESOLVED":
-        color = (255, 0, 0)  # Mavi
-    else:
-        color = (0, 255, 0)  # Yeşil
-
-    cv2.putText(
-        frame,
-        f"EVENT: {event_id} [{event_status}]",
-        (10, 30),
-        font,
-        font_scale,
-        color,
-        thickness,
-    )
-
-    sig = event_info.get("alarm_signature")
-    if sig is not None:
-        info_text = (
-            f"Helmet: {getattr(sig, 'helmet_violation_count', 0)}, "
-            f"Vest: {getattr(sig, 'vest_violation_count', 0)}, "
-            f"Fire: {getattr(sig, 'fire_detected', False)}"
-        )
-        cv2.putText(
-            frame,
-            info_text,
-            (10, 70),
-            font,
-            font_scale,
-            color,
-            thickness,
-        )
-
-    repeat = event_info.get("repeat_count", 0)
-    cv2.putText(
-        frame,
-        f"Repeat: {repeat}",
-        (10, 110),
-        font,
-        font_scale,
-        color,
-        thickness,
-    )
-
-    return frame
-
-
-def save_event_report(event_info, report_data, results_dir: Path):
-    """
-    Event raporu + JSON kaydet.
-    """
-    if not event_info.get("should_save"):
-        return None
-
-    results_dir.mkdir(exist_ok=True)
-    event_id = event_info.get("event_id", "no_event")
     event_dir = results_dir / event_id
-    event_dir.mkdir(exist_ok=True)
+    event_dir.mkdir(parents=True, exist_ok=True)
 
-    event_status = event_info.get("event_status", "unknown")
     if event_status == "new":
         suffix = "new"
-    elif event_status == "update":
-        existing = list(event_dir.glob(f"{event_id}_update_*.txt"))
-        update_num = len(existing) + 1
-        suffix = f"update_{update_num:02d}"
-    else:
+    elif event_status == "resolved":
         suffix = "resolved"
-
-    txt_file = event_dir / f"{event_id}_{suffix}.txt"
-    with open(txt_file, "w", encoding="utf-8") as f:
-        f.write("=" * 60 + "\n")
-        f.write(f"EVENT: {event_id} [{event_status.upper()}]\n")
-        f.write(f"Zaman: {report_data.get('timestamp', 'N/A')}\n")
-        f.write(f"Tekrar: {event_info.get('repeat_count', 0)}\n")
-        f.write(f"Süre: {event_info.get('duration_sec', 0):.1f}s\n")
-        f.write("=" * 60 + "\n\n")
-        f.write("--- CNN TESPİT VERİSİ ---\n")
-        f.write(report_data.get("structured", "N/A"))
-        f.write("\n--- LLM GÜVENLİK RAPORU ---\n")
-        f.write(report_data.get("report", "N/A"))
-        f.write("\n")
-
-    json_file = event_dir / f"{event_id}_{suffix}.json"
-
-    # AlarmSignature → frontend'in beklediği signature formatına dönüştür
-    sig = event_info.get("alarm_signature")
-    if sig is not None:
-        h_count = getattr(sig, "helmet_violation_count", 0)
-        v_count = getattr(sig, "vest_violation_count", 0)
-        signature = {
-            "helmet_missing_ids": list(range(1, h_count + 1)),
-            "vest_missing_ids":   list(range(1, v_count + 1)),
-            "fire_detected":      getattr(sig, "fire_detected", False),
-            "fire_confidence":    getattr(sig, "fire_confidence", 0.0),
-        }
     else:
-        signature = {}
+        n = update_counters.get(event_id, 0) + 1
+        update_counters[event_id] = n
+        suffix = f"update_{n:02d}"
 
-    json_data = {
+    json_path = event_dir / f"{event_id}_{suffix}.json"
+    img_path  = event_dir / f"{event_id}_{suffix}.jpg"
+
+    # person_violations'dan hangi track ID'lerin ihlali var → frontend için
+    person_viols = event_info.get("person_violations", [])
+    helmet_ids = [p["track_id"] for p in person_viols if "no_helmet" in p.get("violations", [])]
+    vest_ids   = [p["track_id"] for p in person_viols if "no_vest"   in p.get("violations", [])]
+    base_sig   = event_info.get("signature", {})
+    signature  = {
+        **base_sig,
+        "helmet_missing_ids": helmet_ids,
+        "vest_missing_ids":   vest_ids,
+        "fire_detected":      base_sig.get("fire_detected", False),
+    }
+
+    payload = {
         "event_id":     event_id,
         "event_status": event_status,
-        "timestamp":    report_data.get("timestamp"),
-        "repeat_count": event_info.get("repeat_count"),
-        "duration_sec": event_info.get("duration_sec"),
+        "timestamp":    datetime.now().isoformat(),
+        "repeat_count": event_info.get("repeat_count", 0),
+        "duration_sec": event_info.get("duration_sec", 0.0),
         "change_reason": event_info.get("change_reason", ""),
         "signature":    signature,
-        "llm_report":   report_data.get("report"),
-        "structured":   report_data.get("structured"),
+        "llm_report":   None,
     }
-    with open(json_file, "w", encoding="utf-8") as f:
-        json.dump(json_data, f, ensure_ascii=False, indent=2)
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
 
-    print(f"  {CYAN}[KAYIT] {event_id}/{suffix}{RESET}")
-    return {"txt": txt_file, "json": json_file, "suffix": suffix}
+    cv2.imwrite(str(img_path), frame)
+    print(f"  [KAYIT] {event_id}/{suffix}")
+
+    try:
+        import winsound
+        winsound.Beep(1000, 400)
+    except Exception:
+        pass
 
 
-def open_video_source(video_file, camera_idx):
-    """
-    Video veya kamera kaynağını aç.
-    """
-    print(f"\n{BOLD}[3/4] Video kaynağı açılıyor...{RESET}")
+# ---------------------------------------------------------------------------
+# Ana döngü
+# ---------------------------------------------------------------------------
 
-    if video_file:
-        video_path = Path(video_file)
+def run(args):
+    device = args.device
 
-        if not video_path.exists():
-            candidate = Path("test") / video_file
-            if candidate.exists():
-                video_path = candidate
+    print("Modeller yukleniyor...")
+    person_model = YOLO(PERSON_MODEL_PATH)
+    helmet_model = YOLO(HELMET_MODEL_PATH)
+    vest_model   = YOLO(VEST_MODEL_PATH)
+    fire_model   = YOLO(FIRE_MODEL_PATH)
+    print("  person, helmet, vest, fire modelleri hazir.")
 
-        if not video_path.exists():
-            print(f"  {RED}[HATA] Video dosyası bulunamadı: {video_path.resolve()}{RESET}")
-            sys.exit(1)
+    p_ids = class_ids(person_model, ["person"])
+    h_ids = class_ids(helmet_model, HELMET_CLASSES)
+    v_ids = class_ids(vest_model,   VEST_CLASSES)
+    f_ids = [cid for cid, name in fire_model.names.items() if name == FIRE_CLASS]
 
-        cap = cv2.VideoCapture(str(video_path.resolve()))
-        if not cap.isOpened():
-            print(f"  {RED}[HATA] Video açılamadı: {video_path.resolve()}{RESET}")
-            sys.exit(1)
+    from event_manager import PersonEventManager
+    event_manager = PersonEventManager(
+        new_confirm_sec=3.0,
+        resolved_confirm_sec=5.0,
+    )
 
-        print(f"  {GREEN}✓ Video dosyası: {video_path.resolve()}{RESET}")
-        return cap
+    states = defaultdict(lambda: {
+        "hardhat": deque(maxlen=TEMPORAL_WIN),
+        "vest":    deque(maxlen=TEMPORAL_WIN),
+    })
 
-    cap = cv2.VideoCapture(camera_idx)
+    results_dir     = Path("results")
+    update_counters: dict[str, int] = {}
+
+    source = args.video if args.video else args.camera
+    cap = cv2.VideoCapture(str(source) if args.video else int(source))
     if not cap.isOpened():
-        print(f"  {RED}[HATA] Kamera açılamadı: {camera_idx}{RESET}")
-        sys.exit(1)
+        sys.exit(f"Kaynak acilamadi: {source}")
 
-    print(f"  {GREEN}✓ Kamera {camera_idx}{RESET}")
-    return cap
+    cv2.namedWindow("Factory Safety", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("Factory Safety", 1280, 720)
 
-
-def main():
-    # ── Argümanları işle ───────────────────────────────────────────
-    offline = "--offline" in sys.argv
-    camera_idx = 0
-    video_file = None
-
-    if "--camera" in sys.argv:
-        idx = sys.argv.index("--camera") + 1
-        if idx < len(sys.argv):
-            camera_idx = int(sys.argv[idx])
-
-    if "--video" in sys.argv:
-        idx = sys.argv.index("--video") + 1
-        if idx < len(sys.argv):
-            video_file = sys.argv[idx]
-
-    print(f"\n{BOLD}{'=' * 65}{RESET}")
-    print(f"{BOLD}  FACTORY SAFETY — CANLI VIDEO + EVENT-BAZLI YÖNETİM{RESET}")
-    print(f"{BOLD}{'=' * 65}{RESET}")
-    print(f"  Kaynak  : {'Kamera ' + str(camera_idx) if not video_file else 'Video: ' + video_file}")
-    print(f"  LLM     : {'[OFFLINE / Mock]' if offline else '[Ollama / mistral]'}")
-    print(f"  Cihaz   : {_DEVICE.upper()}")
-    print(f"  Timeout : 10 saniye")
-    print(f"  İşleme  : saniyede 1 kez")
-
-    # ── Ajanları yükle ─────────────────────────────────────────────
-    print(f"\n{BOLD}[1/4] CNN Ajanları yükleniyor...{RESET}")
-    try:
-        from agents.specific_agents import HelmetAgent, VestAgent, FireAgent
-
-        helmet_agent = HelmetAgent(device=_DEVICE)
-        vest_agent = VestAgent(device=_DEVICE)
-        fire_agent = FireAgent(device=_DEVICE)
-
-        print(f"  {GREEN}✓ HelmetAgent{RESET}")
-        print(f"  {GREEN}✓ VestAgent{RESET}")
-        print(f"  {GREEN}✓ FireAgent{RESET}")
-    except Exception as e:
-        print(f"  {RED}[HATA] Ajan yüklenemedi: {e}{RESET}")
-        sys.exit(1)
-
-    # ── LLM + Event Manager ────────────────────────────────────────
-    print(f"\n{BOLD}[2/4] LLM + Event Manager başlatılıyor...{RESET}")
-    try:
-        from llm.llm_coordinator import OllamaLLMCoordinator
-        from event_manager import EventManager
-
-        llm = OllamaLLMCoordinator(model_name="mistral", offline_mode=offline)
-        event_manager = EventManager(timeout_sec=10.0)
-
-        print(f"  {GREEN}✓ LLMCoordinator{RESET}")
-        print(f"  {GREEN}✓ EventManager (timeout=10s){RESET}")
-    except Exception as e:
-        print(f"  {RED}[HATA] LLM/EventManager başlatılamadı: {e}{RESET}")
-        sys.exit(1)
-
-    # ── Video kaynağını aç ─────────────────────────────────────────
-    cap = open_video_source(video_file, camera_idx)
-
-    # ── Ana döngü ayarları ─────────────────────────────────────────
-    print(f"\n{BOLD}[4/4] Video işleniyor (ESC = çıkış)...{RESET}\n")
-
-    # Sabit pencere boyutu (1280x720)
-    win_w, win_h = 1280, 720
-    cv2.namedWindow("Factory Safety - Live", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow("Factory Safety - Live", win_w, win_h)
-
-    results_dir = Path("results")
-    frame_count = 0
+    frame_idx   = 0
     event_count = 0
+    last_event  = {"event_id": None, "event_status": "idle", "repeat_count": 0}
+    last_viols  = []
 
-    process_interval_sec = 1.0
-    last_process_time = 0.0
-
-    last_event_info = {
-        "event_id": "N/A",
-        "event_status": "idle",
-        "repeat_count": 0,
-        "alarm_signature": None,
-        "should_save": False,
-    }
-    _empty = {"detections": [], "warnings": []}
-    last_hr, last_vr, last_fr = _empty, _empty, _empty
+    print("Basladi. ESC = cikis.\n")
 
     try:
         while True:
-            ret, frame = cap.read()
-            if not ret:
-                print(f"\n{CYAN}Video sonu ulaşıldı.{RESET}")
+            ok, frame = cap.read()
+            if not ok:
                 break
+            frame_idx += 1
 
-            frame_count += 1
-            report_data = None
+            # --- Person tracking ---
+            p_result = person_model.track(
+                frame, classes=p_ids, tracker=TRACKER, persist=True,
+                imgsz=IMGSZ, conf=PERSON_CONF, device=device, verbose=False,
+            )[0]
 
-            now = time.monotonic()
-            should_process_now = (now - last_process_time) >= process_interval_sec
+            persons_with_ppe: list[dict] = []
+            draw_frame = frame.copy()
 
-            if should_process_now:
-                last_process_time = now
+            boxes = p_result.boxes
+            if boxes is not None and boxes.id is not None:
+                for box, tid in zip(boxes.xyxy, boxes.id):
+                    track_id = int(tid)
+                    x1, y1, x2, y2 = map(int, box.tolist())
 
-                try:
-                    hr = helmet_agent.detect(frame)
-                    vr = vest_agent.detect(frame)
-                    fr = fire_agent.detect(frame)
-                except Exception as e:
-                    print(f"{RED}[HATA] Deteksiyon: {e}{RESET}")
-                    continue
+                    # Helmet
+                    hcrop = crop_pad(frame, x1, y1, x2, y2, HELMET_PAD)
+                    hres  = helmet_model.predict(
+                        hcrop, classes=h_ids, imgsz=IMGSZ,
+                        conf=HELMET_CONF, device=device, verbose=False,
+                    )[0]
+                    hlabel, hconf = best_det(helmet_model, hres, h_ids, HELMET_CONF)
+                    states[track_id]["hardhat"].append(hlabel)
+                    hvote = vote(states[track_id]["hardhat"])
 
-                last_hr, last_vr, last_fr = hr, vr, fr
-                event_info = event_manager.process_frame(hr, vr, fr)
-                last_event_info = event_info
+                    # Vest
+                    vcrop = crop_pad(frame, x1, y1, x2, y2, VEST_PAD)
+                    vres  = vest_model.predict(
+                        vcrop, classes=v_ids, imgsz=IMGSZ,
+                        conf=VEST_CONF, device=device, verbose=False,
+                    )[0]
+                    vlabel, vconf = best_det(vest_model, vres, v_ids, VEST_CONF)
+                    states[track_id]["vest"].append(vlabel)
+                    vvote = vote(states[track_id]["vest"])
 
-                # LLM sadece event kayda değer durumda çağrılsın
-                if event_info.get("should_save"):
-                    report_data = llm.generate_alarm_report(
-                        hr,
-                        vr,
-                        fr,
-                        image_name=f"frame_{frame_count}",
-                        use_minimal_format=True,
+                    color, viols = compliance_color(hvote, vvote)
+                    persons_with_ppe.append({"track_id": track_id, "violations": viols})
+
+                    label = (
+                        f"ID{track_id} "
+                        f"H:{hvote[:6]}({hconf:.2f}) "
+                        f"V:{vvote[:6]}({vconf:.2f})"
                     )
+                    draw_box(draw_frame, x1, y1, x2, y2, label, color)
 
-                if event_info.get("should_save") and report_data:
-                    event_count += 1
-                    saved = save_event_report(event_info, report_data, results_dir)
+            # --- Fire detection ---
+            fire_res = fire_model.predict(
+                frame, classes=f_ids if f_ids else None,
+                imgsz=IMGSZ, conf=FIRE_CONF, device=device, verbose=False,
+            )[0]
+            fire_raw = bool(fire_res.boxes and len(fire_res.boxes) > 0)
+            if fire_raw:
+                cv2.putText(draw_frame, "FIRE DETECTED!", (10, 90),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1.0, COLOR_FIRE, 3)
 
-                    if saved:
-                        event_id = event_info.get("event_id")
-                        suffix = saved["suffix"]
-                        event_dir = results_dir / event_id
-                        img_path = event_dir / f"{event_id}_{suffix}.jpg"
-                        cv2.imwrite(str(img_path), frame)
+            # --- Event state machine ---
+            event_info = event_manager.process_frame(persons_with_ppe, fire_raw)
+            last_event = event_info
+            last_viols = event_info.get("person_violations", [])
 
-            display_frame = frame.copy()
-            draw_detections(display_frame, last_hr, last_vr, last_fr)
-            setup_display_frame(display_frame, last_event_info)
-            cv2.imshow("Factory Safety - Live", display_frame)
+            should_save = (
+                event_info["should_save"]
+                or event_info["event_status"] == "resolved"
+            )
+            if should_save and event_info.get("event_id"):
+                event_count += 1
+                save_event(event_info, draw_frame, results_dir, update_counters)
 
-            if frame_count % 30 == 0:
-                print(f"  Frame {frame_count} | Events: {event_count}")
+            # --- HUD ---
+            draw_hud(
+                draw_frame,
+                event_info.get("event_id"),
+                event_info["event_status"],
+                event_info.get("repeat_count", 0),
+                last_viols,
+            )
+
+            cv2.imshow("Factory Safety", draw_frame)
+            if frame_idx % 60 == 0:
+                print(f"  Frame {frame_idx} | Events: {event_count} | Status: {event_info['event_status']}")
 
             if cv2.waitKey(1) & 0xFF == 27:
-                print(f"\n{CYAN}Kullanıcı tarafından durduruldu.{RESET}")
                 break
 
     except KeyboardInterrupt:
-        print(f"\n{CYAN}Durduruldu.{RESET}")
-
+        pass
     finally:
         cap.release()
         cv2.destroyAllWindows()
+        print(f"\nToplam frame: {frame_idx} | Kaydedilen event: {event_count}")
+        print(f"Sonuclar: results/")
 
-        resolved = event_manager.force_resolve_event()
-        if resolved:
-            print(f"\n{CYAN}Son event kapatıldı.{RESET}")
 
-        print(f"\n{BOLD}{'=' * 65}{RESET}")
-        print("  ÖZET")
-        print(f"{BOLD}{'=' * 65}{RESET}")
-        print(f"  Toplam frame     : {frame_count}")
-        print(f"  Event sayısı     : {event_count}")
-        print(f"  Sonuçlar         : results/")
-        print(f"{BOLD}{'=' * 65}{RESET}\n")
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Factory Safety — crop-based PPE pipeline")
+    src = parser.add_mutually_exclusive_group()
+    src.add_argument("--video",  help="Video dosyasi yolu")
+    src.add_argument("--camera", default=0, help="Kamera indeksi (varsayilan: 0)")
+    parser.add_argument("--device", default=_DEVICE, help="cuda device veya cpu")
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
-    main()
+    run(parse_args())
