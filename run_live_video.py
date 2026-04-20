@@ -228,7 +228,6 @@ def run(args):
     event_manager = PersonEventManager(
         new_confirm_sec=3.0,
         resolved_confirm_sec=5.0,
-        persist_violations_on_exit=True,  # baretsiz/yeleksiz çıkan kişi event'i kapatmaz
     )
 
     states = defaultdict(lambda: {
@@ -321,11 +320,7 @@ def run(args):
             last_event = event_info
             last_viols = event_info.get("person_violations", [])
 
-            should_save = (
-                event_info["should_save"]
-                or event_info["event_status"] == "resolved"
-            )
-            if should_save and event_info.get("event_id"):
+            if event_info["should_save"] and event_info.get("event_id"):
                 event_count += 1
                 save_event(event_info, draw_frame, results_dir, update_counters)
 
