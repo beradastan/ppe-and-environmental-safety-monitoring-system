@@ -116,18 +116,20 @@ class PersonEventManager:
 
     def __init__(
         self,
-        new_confirm_sec:        float = DEFAULT_NEW_CONFIRM_SEC,
-        resolved_confirm_sec:   float = DEFAULT_RESOLVED_CONFIRM_SEC,
-        fire_confirm_frames:    int   = DEFAULT_FIRE_CONFIRM_FRAMES,
-        fire_clear_frames:      int   = DEFAULT_FIRE_CLEAR_FRAMES,
-        event_id_prefix:        str   = "evt",
-        check_helmet:           bool  = True,
-        check_vest:             bool  = True,
-        check_mask:             bool  = False,
-        history_frames:         int   = DEFAULT_HISTORY_FRAMES,
-        exit_grace_sec:         float = DEFAULT_EXIT_GRACE_SEC,
-        confirm_gap_tolerance:  float = DEFAULT_CONFIRM_GAP_TOLERANCE,
+        new_confirm_sec:           float = DEFAULT_NEW_CONFIRM_SEC,
+        resolved_confirm_sec:      float = DEFAULT_RESOLVED_CONFIRM_SEC,
+        fire_confirm_frames:       int   = DEFAULT_FIRE_CONFIRM_FRAMES,
+        fire_clear_frames:         int   = DEFAULT_FIRE_CLEAR_FRAMES,
+        event_id_prefix:           str   = "evt",
+        check_helmet:              bool  = True,
+        check_vest:                bool  = True,
+        check_mask:                bool  = False,
+        history_frames:            int   = DEFAULT_HISTORY_FRAMES,
+        exit_grace_sec:            float = DEFAULT_EXIT_GRACE_SEC,
+        confirm_gap_tolerance:     float = DEFAULT_CONFIRM_GAP_TOLERANCE,
+        persist_violations_on_exit: bool = False,
     ) -> None:
+        self.persist_violations_on_exit = persist_violations_on_exit
         self.new_confirm_sec        = new_confirm_sec
         self.resolved_confirm_sec   = resolved_confirm_sec
         self.fire_confirm_frames    = fire_confirm_frames
@@ -301,8 +303,13 @@ class PersonEventManager:
                 violation_ratio = sum(history) / len(history) if history else 0.0
 
                 if violation_ratio >= 0.5:
-                    # Geçmişin çoğunluğu ihlalliydi → grace period başlat
-                    self._person_exit_times[tid] = now
+                    if self.persist_violations_on_exit:
+                        # Kişi ihlalle çıktı → kaydı sil değil, sonsuza koru
+                        # (aynı track_id uyumlu dönene kadar ya da event kapanana kadar)
+                        pass
+                    else:
+                        # Geçmişin çoğunluğu ihlalliydi → grace period başlat
+                        self._person_exit_times[tid] = now
                 else:
                     # Geçmişin çoğunluğu temizdi → hemen sil
                     self._person_states.pop(tid, None)

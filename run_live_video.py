@@ -228,6 +228,7 @@ def run(args):
     event_manager = PersonEventManager(
         new_confirm_sec=3.0,
         resolved_confirm_sec=5.0,
+        persist_violations_on_exit=True,  # baretsiz/yeleksiz çıkan kişi event'i kapatmaz
     )
 
     states = defaultdict(lambda: {
