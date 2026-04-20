@@ -98,10 +98,11 @@ def best_det(model: YOLO, result, allowed_ids: list[int], min_conf: float) -> tu
     return best if best else ("unknown", 0.0)
 
 
-def vote(q: deque) -> str:
-    if not q:
+def vote(q: deque, min_known: int = 3) -> str:
+    known = [v for v in q if v != "unknown"]
+    if len(known) < min_known:
         return "unknown"
-    return Counter(q).most_common(1)[0][0]
+    return Counter(known).most_common(1)[0][0]
 
 
 def compliance_color(hvote: str, vvote: str) -> tuple[tuple[int, int, int], list[str]]:
