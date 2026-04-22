@@ -1,18 +1,16 @@
 # -*- coding: utf-8 -*-
 """
-app.py
-======
-Flask + Socket.IO backend.
-
-Başlatma:
-    python backend/app.py
-    # veya proje kökünden:
-    python -m backend.app
+app.py — Flask + Socket.IO backend
 
 Endpoint'ler:
-    GET  /api/events                      → tüm event listesi
-    GET  /api/events/<event_id>           → bir event'in tam timeline'ı
-    GET  /api/images/<event_id>/<fname>   → ekran görüntüsü (JPEG)
+    GET  /api/events                             → filtreli event listesi (?date=&violation_type=&status=)
+    GET  /api/events/<event_id>                  → timeline + notlar
+    POST /api/events/<event_id>/note             → operatör notu ekle
+    GET  /api/images/<event_id>/<fname>          → JPEG
+    GET  /api/stats                              → dashboard istatistikleri
+    GET  /api/reports?period=daily|weekly|monthly&date=YYYY-MM-DD
+    GET  /api/config                             → ppe_pipeline config
+    PUT  /api/config                             → ppe_pipeline config güncelle
 
 Socket.IO:
     'new_alert' → results/ altına yeni .json yazıldığında yayınlanır
@@ -25,16 +23,18 @@ import sys
 from pathlib import Path
 
 import yaml
-from flask import Flask, abort, jsonify
+from flask import Flask, abort, jsonify, request
 from flask.helpers import send_file
 from flask_cors import CORS
 from flask_socketio import SocketIO
 
-# Proje kökünü Python path'e ekle (python backend/app.py ile çalıştırıldığında)
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from backend.event_reader import get_all_events, get_event_timeline
+from backend.event_reader import (
+    get_all_events, get_filtered_events, get_event_timeline,
+    get_stats, get_report_data, get_notes, save_note,
+)
 from backend.watcher import ResultsWatcher
 
 logging.basicConfig(
@@ -48,12 +48,25 @@ logger = logging.getLogger("app")
 # Config
 # ---------------------------------------------------------------------------
 
+_CONFIG_PATH = PROJECT_ROOT / "config.yaml"
+_PPE_PIPELINE_DEFAULTS = {
+    "helmet_conf": 0.20, "vest_conf": 0.30, "mask_conf": 0.25,
+    "fire_conf": 0.50, "person_conf": 0.25, "temporal_window": 10,
+    "use_helmet": True, "use_vest": True, "use_mask": True, "use_fire": True,
+    "new_confirm_sec": 3.0,
+}
+
+
 def _load_config() -> dict:
-    cfg_path = PROJECT_ROOT / "config.yaml"
-    if cfg_path.exists():
-        with open(cfg_path, encoding="utf-8") as f:
+    if _CONFIG_PATH.exists():
+        with open(_CONFIG_PATH, encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
     return {}
+
+
+def _save_config(cfg: dict) -> None:
+    with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
+        yaml.dump(cfg, f, allow_unicode=True, default_flow_style=False)
 
 
 _config      = _load_config()
@@ -64,70 +77,122 @@ CORS_ORIGINS = _backend_cfg.get("cors_origins", ["http://localhost:5173"])
 RESULTS_DIR  = (PROJECT_ROOT / _config.get("results_dir", "results")).resolve()
 
 # ---------------------------------------------------------------------------
-# Doğrulama sabitleri
+# Doğrulama
 # ---------------------------------------------------------------------------
 
 _EVENT_ID_RE = re.compile(r"^evt_\d+$")
 _FILENAME_RE = re.compile(r"^evt_\d+_(new|update_\d+|resolved)\.jpg$")
+_PERIOD_RE   = re.compile(r"^(daily|weekly|monthly)$")
+_DATE_RE     = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_VT_RE       = re.compile(r"^(helmet|vest|mask|fire)$")
+_STATUS_RE   = re.compile(r"^(new|active|update)$")
 
 # ---------------------------------------------------------------------------
 # Flask + Socket.IO
 # ---------------------------------------------------------------------------
 
-app     = Flask(__name__)
+app      = Flask(__name__)
 CORS(app, origins=CORS_ORIGINS)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 watcher: ResultsWatcher | None = None
 
-
-@app.before_request
-def _noop():  # ensures first-request context is set up
-    pass
-
-
 # ---------------------------------------------------------------------------
-# REST API
+# REST
 # ---------------------------------------------------------------------------
 
 @app.route("/api/events")
 def api_get_events():
-    events = get_all_events(RESULTS_DIR)
+    date_str       = request.args.get("date", "")
+    violation_type = request.args.get("violation_type", "")
+    status         = request.args.get("status", "")
+
+    date_str       = date_str       if _DATE_RE.match(date_str)       else None
+    violation_type = violation_type if _VT_RE.match(violation_type)   else None
+    status         = status         if _STATUS_RE.match(status)        else None
+
+    if date_str or violation_type or status:
+        events = get_filtered_events(RESULTS_DIR, date_str, violation_type, status)
+    else:
+        events = get_all_events(RESULTS_DIR)
+
     return jsonify({"events": events, "total": len(events)})
 
 
 @app.route("/api/events/<event_id>")
 def api_get_timeline(event_id: str):
     if not _EVENT_ID_RE.match(event_id):
-        abort(400, "Geçersiz event_id formatı.")
-
-    event_dir = RESULTS_DIR / event_id
-    if not event_dir.exists():
+        abort(400, "Geçersiz event_id.")
+    if not (RESULTS_DIR / event_id).exists():
         abort(404, f"Event bulunamadı: {event_id}")
-
     timeline = get_event_timeline(RESULTS_DIR, event_id)
-    return jsonify({"event_id": event_id, "timeline": timeline})
+    notes    = get_notes(RESULTS_DIR, event_id)
+    return jsonify({"event_id": event_id, "timeline": timeline, "notes": notes})
+
+
+@app.route("/api/events/<event_id>/note", methods=["POST"])
+def api_add_note(event_id: str):
+    if not _EVENT_ID_RE.match(event_id):
+        abort(400, "Geçersiz event_id.")
+    if not (RESULTS_DIR / event_id).exists():
+        abort(404)
+    body = request.get_json(silent=True) or {}
+    text = str(body.get("note", "")).strip()
+    if not text:
+        abort(400, "Not boş olamaz.")
+    entry = save_note(RESULTS_DIR, event_id, text)
+    return jsonify({"ok": True, "note": entry})
 
 
 @app.route("/api/images/<event_id>/<filename>")
 def api_get_image(event_id: str, filename: str):
-    # Girdi doğrulama (path traversal koruması)
     if not _EVENT_ID_RE.match(event_id):
-        abort(400, "Geçersiz event_id.")
+        abort(400)
     if not _FILENAME_RE.match(filename):
-        abort(400, "Geçersiz dosya adı.")
-
+        abort(400)
     img_path = (RESULTS_DIR / event_id / filename).resolve()
-
-    # Çözümlenen yolun hâlâ results/ altında olduğunu doğrula
     if not str(img_path).startswith(str(RESULTS_DIR)):
         abort(403)
-
     if not img_path.exists():
         abort(404)
-
     return send_file(str(img_path), mimetype="image/jpeg")
 
+
+@app.route("/api/stats")
+def api_get_stats():
+    return jsonify(get_stats(RESULTS_DIR))
+
+
+@app.route("/api/reports")
+def api_get_reports():
+    period   = request.args.get("period", "weekly")
+    date_str = request.args.get("date", "")
+    if not _PERIOD_RE.match(period):
+        abort(400, "period: daily|weekly|monthly")
+    if date_str and not _DATE_RE.match(date_str):
+        abort(400, "date: YYYY-MM-DD")
+    data = get_report_data(RESULTS_DIR, period, date_str or None)
+    return jsonify({"period": period, "data": data})
+
+
+@app.route("/api/config", methods=["GET"])
+def api_get_config():
+    cfg      = _load_config()
+    pipeline = {**_PPE_PIPELINE_DEFAULTS, **cfg.get("ppe_pipeline", {})}
+    return jsonify(pipeline)
+
+
+@app.route("/api/config", methods=["PUT"])
+def api_put_config():
+    body    = request.get_json(silent=True) or {}
+    allowed = set(_PPE_PIPELINE_DEFAULTS.keys())
+    patch   = {k: v for k, v in body.items() if k in allowed}
+    cfg     = _load_config()
+    current = {**_PPE_PIPELINE_DEFAULTS, **cfg.get("ppe_pipeline", {})}
+    current.update(patch)
+    cfg["ppe_pipeline"] = current
+    _save_config(cfg)
+    return jsonify({"ok": True, "config": current})
 
 # ---------------------------------------------------------------------------
 # Socket.IO
@@ -142,7 +207,6 @@ def on_connect():
 def on_disconnect():
     logger.info("İstemci ayrıldı.")
 
-
 # ---------------------------------------------------------------------------
 # Başlat
 # ---------------------------------------------------------------------------
@@ -151,18 +215,10 @@ def main() -> None:
     global watcher
     watcher = ResultsWatcher(RESULTS_DIR, socketio)
     watcher.start()
-
     logger.info(f"Backend başlıyor → http://{HOST}:{PORT}")
     logger.info(f"Results dizini: {RESULTS_DIR}")
-
     try:
-        socketio.run(
-            app,
-            host=HOST,
-            port=PORT,
-            debug=False,
-            use_reloader=False,  # reloader çift process açar → watchdog çakışır
-        )
+        socketio.run(app, host=HOST, port=PORT, debug=False, use_reloader=False)
     finally:
         if watcher:
             watcher.stop()

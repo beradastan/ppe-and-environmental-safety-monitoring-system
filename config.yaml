@@ -1,32 +1,41 @@
-results_dir: "results"
-
 backend:
-  host: "0.0.0.0"
+  cors_origins:
+  - http://localhost:5173
+  host: 0.0.0.0
   port: 5050
-  cors_origins: ["http://localhost:5173"]
-
-models:
-  person_model: "yolo11n.pt"
-  ppe_model: "models/hansung_ppe.pt"
-  fire_model: "models/fire_best.pt"
-  device: "cpu"
-
 detection:
-  person_confidence: 0.40
-  ppe_confidence: 0.35
-  fire_confidence: 0.50
+  fire_confidence: 0.5
   min_hits: 3
-
+  person_confidence: 0.4
+  ppe_confidence: 0.35
 event_manager:
-  new_confirm_frames: 2
-  resolved_confirm_sec: 5.0
-  fire_confirm_frames: 2
   fire_clear_frames: 2
+  fire_confirm_frames: 2
+  new_confirm_frames: 2
   person_grace_sec: 2.0
-
+  resolved_confirm_sec: 5.0
 llm:
-  enabled: false
-  model: "mistral"
-  base_url: "http://localhost:11434"
-  timeout: 60
+  base_url: http://localhost:11434
+  enabled: true
+  model: hf.co/QuantFactory/Turkish-Llama-8b-DPO-v0.1-GGUF:Q4_K_M
   temperature: 0.1
+  timeout: 120
+models:
+  device: cpu
+  fire_model: models/fire_best.pt
+  person_model: yolo11n.pt
+  ppe_model: models/hansung_ppe.pt
+ppe_pipeline:
+  fire_conf: 0.5
+  helmet_conf: 0.2
+  mask_conf: 0.25
+  new_confirm_sec: 3
+  person_conf: 0.25
+  resolved_confirm_sec: 5
+  temporal_window: 30
+  use_fire: true
+  use_helmet: true
+  use_mask: true
+  use_vest: true
+  vest_conf: 0.3
+results_dir: results

@@ -324,6 +324,7 @@ class PersonEventManager:
 
     def _get_person_violations(self) -> list[dict[str, Any]]:
         now = time.monotonic()
+        # Grace period'dakiler dahil — signature ile tutarlılık için
         return [
             {
                 "track_id":     rec.track_id,
@@ -331,7 +332,6 @@ class PersonEventManager:
                 "duration_sec": round(now - rec.since, 1),
             }
             for rec in self._person_states.values()
-            if rec.track_id not in self._person_exit_times  # grace period'dakiler hariç
         ]
 
     # ------------------------------------------------------------------
