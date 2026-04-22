@@ -205,9 +205,9 @@ PERSON_MODEL_PATH = "models/pretrained/person/person_yolov8s-seg.pt"
 HELMET_PAD   = 0.80
 VEST_PAD     = 0.60
 MASK_PAD     = 0.80
-HELMET_CONF  = 0.20
+HELMET_CONF  = 0.15
 VEST_CONF    = 0.30
-MASK_CONF    = 0.25
+MASK_CONF    = 0.15
 FIRE_CONF    = 0.75  # yükseltildi: kum/yelek false positive bastırma (eski: 0.50)
 PERSON_CONF  = 0.25
 IMGSZ        = 640
@@ -215,7 +215,8 @@ TRACKER      = "bytetrack.yaml"   # proje kökündeki özel config (track_buffer
 TEMPORAL_WIN      = 20   # artırıldı: daha kararlı oy (eski: 10)
 STATES_CLEANUP_EVERY = 300  # her N frame'de kayıp track temizliği
 
-MIN_CROP_PX    = 40   # crop bu boyutun altındaysa model çağrılmaz (kenar kişi)
+MIN_CROP_PX      = 40   # crop bu boyutun altındaysa model çağrılmaz (kenar kişi)
+MIN_TRACK_FRAMES = 10   # bu kadar frame görülmemiş track'lar ghost — event'e dahil edilmez
 
 HELMET_CLASSES = ["Hardhat", "NO-Hardhat"]
 VEST_CLASSES   = ["Safety Vest", "NO-Safety Vest"]
@@ -515,9 +516,10 @@ def run(args):
     )
 
     states = defaultdict(lambda: {
-        "hardhat": deque(maxlen=TEMPORAL_WIN),
-        "vest":    deque(maxlen=TEMPORAL_WIN),
-        "mask":    deque(maxlen=TEMPORAL_WIN),
+        "hardhat":     deque(maxlen=TEMPORAL_WIN),
+        "vest":        deque(maxlen=TEMPORAL_WIN),
+        "mask":        deque(maxlen=TEMPORAL_WIN),
+        "frame_count": 0,
     })
 
     results_dir = Path("results")
@@ -585,6 +587,7 @@ def run(args):
                 for box, tid in zip(boxes.xyxy, boxes.id):
                     track_id = int(tid)
                     seen_track_ids.add(track_id)
+                    states[track_id]["frame_count"] += 1
                     x1, y1, x2, y2 = map(int, box.tolist())
 
                     # Helmet
@@ -624,7 +627,13 @@ def run(args):
                     else:
                         mlabel, mconf, mbbox = "unknown", 0.0, None
                     states[track_id]["mask"].append(mlabel)
-                    mvote = vote(states[track_id]["mask"])
+                    mvote = vote(states[track_id]["mask"], min_known=2)
+
+                    # Ghost track filtresi: yeterince görülmemiş track'ları atla
+                    if states[track_id]["frame_count"] < MIN_TRACK_FRAMES:
+                        if display:
+                            draw_box(draw_frame, x1, y1, x2, y2, "...", COLOR_UNKNOWN)
+                        continue
 
                     color, viols = compliance_color(hvote, vvote, mvote)
                     did = display_id(track_id)  # kullanıcıya gösterilen sıralı ID
