@@ -25,6 +25,7 @@ import cv2
 import yaml
 import requests
 from collections import Counter, defaultdict, deque
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -207,7 +208,8 @@ VEST_PAD     = 0.60
 MASK_PAD     = 0.80
 HELMET_CONF  = 0.15
 VEST_CONF    = 0.30
-MASK_CONF    = 0.15
+MASK_CONF    = 0.10
+MASK_IMGSZ   = 1280  # maske için yüksek çözünürlük: küçük yüz bölgelerinde recall artışı
 FIRE_CONF    = 0.75  # yükseltildi: kum/yelek false positive bastırma (eski: 0.50)
 PERSON_CONF  = 0.25
 IMGSZ        = 640
@@ -217,8 +219,11 @@ STATES_CLEANUP_EVERY = 300  # her N frame'de kayıp track temizliği
 
 MIN_CROP_PX      = 40   # crop bu boyutun altındaysa model çağrılmaz (kenar kişi)
 MIN_TRACK_FRAMES     = 10    # bu kadar frame görülmemiş track'lar ghost — event'e dahil edilmez
-MIN_SELF_CONTAINMENT = 0.30  # PPE bbox'ının en az bu kadarı kişinin anatomik bölgesinde olmalı
+MIN_SELF_CONTAINMENT = 0.20  # PPE bbox'ının en az bu kadarı kişinin anatomik bölgesinde olmalı
 MAX_NEIGHBOR_RATIO   = 0.80  # Komşunun skoru bu oranı geçerse → ambiguous → unknown
+MIN_HEAD_PX  = 30   # kafa/maske anatomik bölgesi bu genişliğin altındaysa çıkarım yapma
+MIN_TORSO_PX = 50   # gövde/yelek bölgesi için minimum genişlik
+TELEMETRY    = False  # PPE karar telemetrisi (True → her kararda konsola log yazar)
 
 HELMET_CLASSES = ["Hardhat", "NO-Hardhat"]
 VEST_CLASSES   = ["Safety Vest", "NO-Safety Vest"]
@@ -281,11 +286,11 @@ def crop_ppe(frame, x1, y1, x2, y2, ppe: str):
         cx2 = min(fw, x2 + int(pw * 0.15))
         cy2 = min(fh, y1 + int(ph * 0.90))
     else:  # mask
-        # Sadece baş bölgesi: üst %40 + yanlara %10 + yukarı %10
-        cx1 = max(0, x1 - int(pw * 0.10))
+        # Sadece baş bölgesi: üst %45 + yanlara %15 + yukarı %10
+        cx1 = max(0, x1 - int(pw * 0.15))
         cy1 = max(0, y1 - int(ph * 0.10))
-        cx2 = min(fw, x2 + int(pw * 0.10))
-        cy2 = min(fh, y1 + int(ph * 0.40))
+        cx2 = min(fw, x2 + int(pw * 0.15))
+        cy2 = min(fh, y1 + int(ph * 0.45))
 
     crop = frame[cy1:cy2, cx1:cx2]
     return crop, cx1, cy1
@@ -359,6 +364,33 @@ def _collect_dets(model: YOLO, result, allowed_ids: list[int], min_conf: float) 
     return dets
 
 
+def _validate_ppe_scored(
+    ppe_bbox_frame: list,
+    label: str,
+    target_tid: int,
+    all_persons_frame: list[dict],
+    ppe_type: str,
+) -> tuple[str, float, float, str]:
+    """Geometrik doğrulama + telemetri için skor bilgisi döndürür: (label, own_score, max_nb, reason)."""
+    target = next((p for p in all_persons_frame if p["tid"] == target_tid), None)
+    if target is None:
+        return "unknown", 0.0, 0.0, "no_target"
+    own_region = anatomical_region(*target["box"], ppe_type)
+    own_score  = _containment(ppe_bbox_frame, own_region)
+    if own_score < MIN_SELF_CONTAINMENT:
+        return "unknown", own_score, 0.0, "low_self_score"
+    max_nb = 0.0
+    for p in all_persons_frame:
+        if p["tid"] == target_tid:
+            continue
+        nb_score = _containment(ppe_bbox_frame, anatomical_region(*p["box"], ppe_type))
+        if nb_score > max_nb:
+            max_nb = nb_score
+        if nb_score > own_score * MAX_NEIGHBOR_RATIO:
+            return "unknown", own_score, nb_score, "neighbor_ambiguous"
+    return label, own_score, max_nb, "accepted"
+
+
 def validate_ppe(
     ppe_bbox_frame: list,
     label: str,
@@ -366,29 +398,8 @@ def validate_ppe(
     all_persons_frame: list[dict],
     ppe_type: str,
 ) -> str:
-    """
-    PPE bbox'ını geometrik olarak doğrula.
-    Kendi anatomik bölgesiyle örtüşme yetersizse ya da komşu daha iyi
-    aday ise "unknown" döner; aksi halde label'ı onaylar.
-    """
-    target = next((p for p in all_persons_frame if p["tid"] == target_tid), None)
-    if target is None:
-        return "unknown"
-
-    own_region = anatomical_region(*target["box"], ppe_type)
-    own_score  = _containment(ppe_bbox_frame, own_region)
-
-    if own_score < MIN_SELF_CONTAINMENT:
-        return "unknown"
-
-    for p in all_persons_frame:
-        if p["tid"] == target_tid:
-            continue
-        neighbor_score = _containment(ppe_bbox_frame, anatomical_region(*p["box"], ppe_type))
-        if neighbor_score > own_score * MAX_NEIGHBOR_RATIO:
-            return "unknown"
-
-    return label
+    """PPE bbox'ını geometrik olarak doğrula; "unknown" ya da onaylı label döndürür."""
+    return _validate_ppe_scored(ppe_bbox_frame, label, target_tid, all_persons_frame, ppe_type)[0]
 
 
 def crop_has_neighbor(
@@ -404,6 +415,38 @@ def crop_has_neighbor(
         if _containment(p["box"], crop_box) > thresh:
             return True
     return False
+
+
+def is_region_too_small(x1: int, y1: int, x2: int, y2: int, ppe_type: str) -> bool:
+    """Anatomik bölge çok küçükse True — uzak/küçük kişilerde gereksiz çıkarımı önler."""
+    region = anatomical_region(x1, y1, x2, y2, ppe_type)
+    w = region[2] - region[0]
+    if ppe_type in ("helmet", "mask"):
+        return w < MIN_HEAD_PX
+    return w < MIN_TORSO_PX
+
+
+@dataclass
+class PPEDecision:
+    frame_idx:    int
+    stable_pid:   int
+    ppe_type:     str
+    raw_label:    str
+    conf:         float
+    own_score:    float
+    neighbor_pen: float
+    ambiguous:    bool
+    accepted:     bool
+    reason:       str
+
+
+def _log_ppe_decision(d: PPEDecision) -> None:
+    print(
+        f"  [TEL] f={d.frame_idx:5d} pid={d.stable_pid:3d} {d.ppe_type:6s}"
+        f" raw={d.raw_label:18s} conf={d.conf:.2f}"
+        f" own={d.own_score:.2f} nbpen={d.neighbor_pen:.2f}"
+        f" {'ACCEPT' if d.accepted else 'REJECT':6s} ({d.reason})"
+    )
 
 
 def draw_ppe_box(frame, x1, y1, x2, y2, label: str, color, tag: str):
@@ -693,7 +736,7 @@ def run(args):
                     # Helmet
                     hcrop, hox, hoy = crop_ppe(frame, x1, y1, x2, y2, "helmet")
                     hlabel, hconf, hbbox = "unknown", 0.0, None
-                    if _crop_ok(hcrop):
+                    if _crop_ok(hcrop) and not is_region_too_small(x1, y1, x2, y2, "helmet"):
                         hres  = helmet_model.predict(
                             hcrop, classes=h_ids, imgsz=IMGSZ,
                             conf=HELMET_CONF, device=device, verbose=False,
@@ -702,8 +745,16 @@ def run(args):
                         if hdets:
                             best = max(hdets, key=lambda d: d["conf"])
                             hbbox_f = list(crop_to_frame(best["bbox"], hox, hoy, fh, fw))
-                            vlbl = validate_ppe(hbbox_f, best["label"], track_id,
-                                                all_persons_frame, "helmet")
+                            vlbl, h_own, h_nb, h_reason = _validate_ppe_scored(
+                                hbbox_f, best["label"], track_id, all_persons_frame, "helmet")
+                            if TELEMETRY:
+                                _log_ppe_decision(PPEDecision(
+                                    frame_idx=frame_idx, stable_pid=track_id, ppe_type="helmet",
+                                    raw_label=best["label"], conf=best["conf"],
+                                    own_score=h_own, neighbor_pen=h_nb,
+                                    ambiguous=(h_nb > h_own * MAX_NEIGHBOR_RATIO),
+                                    accepted=(vlbl != "unknown"), reason=h_reason,
+                                ))
                             if vlbl != "unknown":
                                 hlabel, hconf, hbbox = vlbl, best["conf"], hbbox_f
                         elif crop_has_neighbor([hox, hoy, hox + hcrop.shape[1], hoy + hcrop.shape[0]],
@@ -724,8 +775,16 @@ def run(args):
                         if vdets:
                             best = max(vdets, key=lambda d: d["conf"])
                             vbbox_f = list(crop_to_frame(best["bbox"], vox, voy, fh, fw))
-                            vlbl = validate_ppe(vbbox_f, best["label"], track_id,
-                                                all_persons_frame, "vest")
+                            vlbl, v_own, v_nb, v_reason = _validate_ppe_scored(
+                                vbbox_f, best["label"], track_id, all_persons_frame, "vest")
+                            if TELEMETRY:
+                                _log_ppe_decision(PPEDecision(
+                                    frame_idx=frame_idx, stable_pid=track_id, ppe_type="vest",
+                                    raw_label=best["label"], conf=best["conf"],
+                                    own_score=v_own, neighbor_pen=v_nb,
+                                    ambiguous=(v_nb > v_own * MAX_NEIGHBOR_RATIO),
+                                    accepted=(vlbl != "unknown"), reason=v_reason,
+                                ))
                             if vlbl != "unknown":
                                 vlabel, vconf, vbbox = vlbl, best["conf"], vbbox_f
                         elif crop_has_neighbor([vox, voy, vox + vcrop.shape[1], voy + vcrop.shape[0]],
@@ -737,24 +796,32 @@ def run(args):
                     # Mask
                     mcrop, mox, moy = crop_ppe(frame, x1, y1, x2, y2, "mask")
                     mlabel, mconf, mbbox = "unknown", 0.0, None
-                    if _crop_ok(mcrop):
+                    if _crop_ok(mcrop) and not is_region_too_small(x1, y1, x2, y2, "mask"):
                         mres  = mask_model.predict(
-                            mcrop, classes=m_ids, imgsz=IMGSZ,
+                            mcrop, classes=m_ids, imgsz=MASK_IMGSZ,
                             conf=MASK_CONF, device=device, verbose=False,
                         )[0]
                         mdets = _collect_dets(mask_model, mres, m_ids, MASK_CONF)
                         if mdets:
                             best = max(mdets, key=lambda d: d["conf"])
                             mbbox_f = list(crop_to_frame(best["bbox"], mox, moy, fh, fw))
-                            vlbl = validate_ppe(mbbox_f, best["label"], track_id,
-                                                all_persons_frame, "mask")
+                            vlbl, m_own, m_nb, m_reason = _validate_ppe_scored(
+                                mbbox_f, best["label"], track_id, all_persons_frame, "mask")
+                            if TELEMETRY:
+                                _log_ppe_decision(PPEDecision(
+                                    frame_idx=frame_idx, stable_pid=track_id, ppe_type="mask",
+                                    raw_label=best["label"], conf=best["conf"],
+                                    own_score=m_own, neighbor_pen=m_nb,
+                                    ambiguous=(m_nb > m_own * MAX_NEIGHBOR_RATIO),
+                                    accepted=(vlbl != "unknown"), reason=m_reason,
+                                ))
                             if vlbl != "unknown":
                                 mlabel, mconf, mbbox = vlbl, best["conf"], mbbox_f
                         elif crop_has_neighbor([mox, moy, mox + mcrop.shape[1], moy + mcrop.shape[0]],
                                                all_persons_frame, track_id):
                             mlabel = "unknown"
                     states[track_id]["mask"].append(mlabel)
-                    mvote = vote(states[track_id]["mask"], min_known=2)
+                    mvote = vote(states[track_id]["mask"], min_known=1)
 
                     # Ghost track filtresi: yeterince görülmemiş track'ları atla
                     if states[track_id]["frame_count"] < MIN_TRACK_FRAMES:

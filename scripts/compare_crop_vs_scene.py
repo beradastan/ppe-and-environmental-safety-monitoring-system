@@ -2,11 +2,12 @@
 """
 compare_crop_vs_scene.py
 ========================
-Crop-based vs Scene-based PPE pipeline karsilastirmasi.
+Crop-based PPE pipeline karsilastirmasi:
+  - CROP      : klasik crop → doğrudan atama
+  - CROP+ASSOC: crop → geometrik doğrulama → atama
 
-Her test videosu için her iki pipeline çalışır; son frame'deki
-temporal vote'lara göre per-person PPE durumu raporlanır.
-Ground truth ile karsilastirilarak her pipeline'in dogruluğu hesaplanir.
+Her test videosu için her iki pipeline çalışır; temporal vote sonuçları
+ground truth ile karsilastirilir.
 
 Kullanim:
     python scripts/compare_crop_vs_scene.py
@@ -41,7 +42,8 @@ PERSON_MODEL_PATH = "models/pretrained/person/person_yolov8s-seg.pt"
 
 HELMET_CONF  = 0.15
 VEST_CONF    = 0.30
-MASK_CONF    = 0.15
+MASK_CONF    = 0.10
+MASK_IMGSZ   = 1280
 PERSON_CONF  = 0.25
 IMGSZ        = 640
 TRACKER      = "bytetrack.yaml"
@@ -49,22 +51,27 @@ TEMPORAL_WIN     = 20
 MIN_CROP_PX      = 40
 MIN_TRACK_FRAMES = 10
 
+# Geometric association eşikleri
+MIN_SELF_CONTAINMENT = 0.20
+MAX_NEIGHBOR_RATIO   = 0.80
+MIN_HEAD_PX  = 30
+MIN_TORSO_PX = 50
+
 HELMET_CLASSES = ["Hardhat", "NO-Hardhat"]
 VEST_CLASSES   = ["Safety Vest", "NO-Safety Vest"]
 MASK_CLASSES   = ["Mask", "NO-Mask"]
 
 # ---------------------------------------------------------------------------
-# Ground truth: video adı → beklenen ihlaller (set)
-# Her kişi için hangi PPE'ler eksik olmalı
+# Ground truth
 # ---------------------------------------------------------------------------
 GROUND_TRUTH = {
     "novest_test": {
         "person_count": 2,
-        "expected_violations": {"no_mask": 2, "no_vest": 1},   # kaç kişide bu ihlal var
+        "expected_violations": {"no_mask": 2, "no_vest": 1},
         "notes": "2 kisi: ikisi de maske takmıyor, biri yelek takmıyor",
     },
     "nohat_test": {
-        "person_count": None,  # "birden fazla" — sayı belli değil
+        "person_count": None,
         "expected_violations": {"no_mask": "all", "no_helmet": 2},
         "notes": "hepsi maske takmıyor, 2 kişi kask takmıyor",
     },
@@ -106,15 +113,11 @@ def vote(q: deque, min_known: int = 3, ratio_threshold: float = 0.5) -> str:
 
 def violations_from_votes(hvote, vvote, mvote) -> list[str]:
     viols = []
-    if hvote == "NO-Hardhat":    viols.append("no_helmet")
+    if hvote == "NO-Hardhat":     viols.append("no_helmet")
     if vvote == "NO-Safety Vest": viols.append("no_vest")
     if mvote == "NO-Mask":        viols.append("no_mask")
     return viols
 
-
-# ---------------------------------------------------------------------------
-# CROP-BASED pipeline
-# ---------------------------------------------------------------------------
 
 def crop_ppe(frame, x1, y1, x2, y2, ppe: str):
     fh, fw = frame.shape[:2]
@@ -130,12 +133,11 @@ def crop_ppe(frame, x1, y1, x2, y2, ppe: str):
         cx2 = min(fw, x2 + int(pw * 0.15))
         cy2 = min(fh, y1 + int(ph * 0.90))
     else:
-        cx1 = max(0, x1 - int(pw * 0.10))
+        cx1 = max(0, x1 - int(pw * 0.15))
         cy1 = max(0, y1 - int(ph * 0.10))
-        cx2 = min(fw, x2 + int(pw * 0.10))
-        cy2 = min(fh, y1 + int(ph * 0.40))
-    crop = frame[cy1:cy2, cx1:cx2]
-    return crop
+        cx2 = min(fw, x2 + int(pw * 0.15))
+        cy2 = min(fh, y1 + int(ph * 0.45))
+    return frame[cy1:cy2, cx1:cx2], cx1, cy1
 
 
 def _crop_ok(crop) -> bool:
@@ -143,6 +145,12 @@ def _crop_ok(crop) -> bool:
         return False
     h, w = crop.shape[:2]
     return h >= MIN_CROP_PX and w >= MIN_CROP_PX
+
+
+def crop_to_frame(bbox, ox, oy, fh, fw):
+    dx1, dy1, dx2, dy2 = bbox
+    return [min(fw-1, int(ox+dx1)), min(fh-1, int(oy+dy1)),
+            min(fw-1, int(ox+dx2)), min(fh-1, int(oy+dy2))]
 
 
 def best_det_label(model, result, allowed_ids, min_conf) -> tuple[str, float]:
@@ -160,73 +168,27 @@ def best_det_label(model, result, allowed_ids, min_conf) -> tuple[str, float]:
     return best_label, best_conf
 
 
-def run_crop_pipeline(video_path: Path, person_model, helmet_model, vest_model, mask_model,
-                      h_ids, v_ids, m_ids) -> dict[int, dict]:
-    """Returns {display_id: {helmet, vest, mask, violations}}"""
-    cap = cv2.VideoCapture(str(video_path))
-    states = defaultdict(lambda: {
+def _new_states():
+    return defaultdict(lambda: {
         "hardhat":     deque(maxlen=TEMPORAL_WIN),
         "vest":        deque(maxlen=TEMPORAL_WIN),
         "mask":        deque(maxlen=TEMPORAL_WIN),
         "frame_count": 0,
     })
-    id_map, id_next = {}, [1]
 
+
+def _finalize(states, id_map, id_next) -> dict[int, dict]:
     def did(raw):
         if raw not in id_map:
             id_map[raw] = id_next[0]; id_next[0] += 1
         return id_map[raw]
-
-    while True:
-        ok, frame = cap.read()
-        if not ok:
-            break
-        p_result = person_model.track(
-            frame, classes=class_ids(person_model, ["person"]),
-            tracker=TRACKER, persist=True,
-            imgsz=IMGSZ, conf=PERSON_CONF, device=DEVICE, verbose=False,
-        )[0]
-        boxes = p_result.boxes
-        if boxes is None or boxes.id is None:
-            continue
-        for box, tid in zip(boxes.xyxy, boxes.id):
-            track_id = int(tid)
-            states[track_id]["frame_count"] += 1
-            x1, y1, x2, y2 = map(int, box.tolist())
-
-            hcrop = crop_ppe(frame, x1, y1, x2, y2, "helmet")
-            hlabel = "unknown"
-            if _crop_ok(hcrop):
-                hres = helmet_model.predict(hcrop, classes=h_ids, imgsz=IMGSZ,
-                                            conf=HELMET_CONF, device=DEVICE, verbose=False)[0]
-                hlabel, _ = best_det_label(helmet_model, hres, h_ids, HELMET_CONF)
-            states[track_id]["hardhat"].append(hlabel)
-
-            vcrop = crop_ppe(frame, x1, y1, x2, y2, "vest")
-            vlabel = "unknown"
-            if _crop_ok(vcrop):
-                vres = vest_model.predict(vcrop, classes=v_ids, imgsz=IMGSZ,
-                                          conf=VEST_CONF, device=DEVICE, verbose=False)[0]
-                vlabel, _ = best_det_label(vest_model, vres, v_ids, VEST_CONF)
-            states[track_id]["vest"].append(vlabel)
-
-            mcrop = crop_ppe(frame, x1, y1, x2, y2, "mask")
-            mlabel = "unknown"
-            if _crop_ok(mcrop):
-                mres = mask_model.predict(mcrop, classes=m_ids, imgsz=IMGSZ,
-                                          conf=MASK_CONF, device=DEVICE, verbose=False)[0]
-                mlabel, _ = best_det_label(mask_model, mres, m_ids, MASK_CONF)
-            states[track_id]["mask"].append(mlabel)
-
-    cap.release()
-
     results = {}
     for track_id, st in states.items():
         if st["frame_count"] < MIN_TRACK_FRAMES:
-            continue  # ghost track — atla
+            continue
         hvote = vote(st["hardhat"], min_known=3)
         vvote = vote(st["vest"],    min_known=2)
-        mvote = vote(st["mask"],    min_known=2)
+        mvote = vote(st["mask"],    min_known=1)
         results[did(track_id)] = {
             "helmet": hvote, "vest": vvote, "mask": mvote,
             "violations": violations_from_votes(hvote, vvote, mvote),
@@ -235,21 +197,30 @@ def run_crop_pipeline(video_path: Path, person_model, helmet_model, vest_model, 
 
 
 # ---------------------------------------------------------------------------
-# SCENE-BASED pipeline
+# Geometric association helpers
 # ---------------------------------------------------------------------------
 
-def _iou(a, b) -> float:
-    ix1 = max(a[0], b[0]); iy1 = max(a[1], b[1])
-    ix2 = min(a[2], b[2]); iy2 = min(a[3], b[3])
-    inter = max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
-    if inter == 0:
-        return 0.0
-    area_a = (a[2] - a[0]) * (a[3] - a[1])
-    area_b = (b[2] - b[0]) * (b[3] - b[1])
-    return inter / (area_a + area_b - inter + 1e-6)
+def _containment(inner: list, outer: list) -> float:
+    ix1 = max(inner[0], outer[0]); iy1 = max(inner[1], outer[1])
+    ix2 = min(inner[2], outer[2]); iy2 = min(inner[3], outer[3])
+    inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
+    area  = max(1, (inner[2] - inner[0]) * (inner[3] - inner[1]))
+    return inter / area
 
 
-def scene_dets(model, result, allowed_ids, min_conf) -> list[dict]:
+def anatomical_region(x1, y1, x2, y2, ppe_type: str) -> list:
+    pw, ph = x2 - x1, y2 - y1
+    if ppe_type == "helmet":
+        return [x1 + int(pw*0.05), y1 - int(ph*0.10),
+                x2 - int(pw*0.05), y1 + int(ph*0.35)]
+    elif ppe_type == "mask":
+        return [x1 + int(pw*0.15), y1,
+                x2 - int(pw*0.15), y1 + int(ph*0.28)]
+    else:
+        return [x1, y1 + int(ph*0.15), x2, y1 + int(ph*0.85)]
+
+
+def _collect_dets(model, result, allowed_ids, min_conf) -> list[dict]:
     dets = []
     if result.boxes is None:
         return dets
@@ -258,35 +229,54 @@ def scene_dets(model, result, allowed_ids, min_conf) -> list[dict]:
         conf = float(box.conf[0])
         if cid not in allowed_ids or conf < min_conf:
             continue
-        dets.append({"label": str(model.names[cid]), "conf": conf, "bbox": box.xyxy[0].tolist()})
+        dets.append({"label": str(model.names[cid]), "conf": conf,
+                     "bbox": box.xyxy[0].tolist()})
     return dets
 
 
-def match_to_person(dets, px1, py1, px2, py2, iou_thresh=0.05) -> tuple[str, float]:
-    person_box = [px1, py1, px2, py2]
-    best_label, best_conf = "unknown", 0.0
-    for d in dets:
-        if _iou(d["bbox"], person_box) >= iou_thresh and d["conf"] > best_conf:
-            best_label = d["label"]
-            best_conf  = d["conf"]
-    return best_label, best_conf
+def validate_ppe(ppe_bbox_frame, label, target_tid, all_persons_frame, ppe_type) -> str:
+    target = next((p for p in all_persons_frame if p["tid"] == target_tid), None)
+    if target is None:
+        return "unknown"
+    own_region = anatomical_region(*target["box"], ppe_type)
+    own_score  = _containment(ppe_bbox_frame, own_region)
+    if own_score < MIN_SELF_CONTAINMENT:
+        return "unknown"
+    for p in all_persons_frame:
+        if p["tid"] == target_tid:
+            continue
+        nb_score = _containment(ppe_bbox_frame, anatomical_region(*p["box"], ppe_type))
+        if nb_score > own_score * MAX_NEIGHBOR_RATIO:
+            return "unknown"
+    return label
 
 
-def run_scene_pipeline(video_path: Path, person_model, helmet_model, vest_model, mask_model,
-                       h_ids, v_ids, m_ids) -> dict[int, dict]:
-    cap = cv2.VideoCapture(str(video_path))
-    states = defaultdict(lambda: {
-        "hardhat":     deque(maxlen=TEMPORAL_WIN),
-        "vest":        deque(maxlen=TEMPORAL_WIN),
-        "mask":        deque(maxlen=TEMPORAL_WIN),
-        "frame_count": 0,
-    })
+def crop_has_neighbor(crop_box, all_persons_frame, target_tid, thresh=0.25) -> bool:
+    for p in all_persons_frame:
+        if p["tid"] == target_tid:
+            continue
+        if _containment(p["box"], crop_box) > thresh:
+            return True
+    return False
+
+
+def is_region_too_small(x1: int, y1: int, x2: int, y2: int, ppe_type: str) -> bool:
+    region = anatomical_region(x1, y1, x2, y2, ppe_type)
+    w = region[2] - region[0]
+    if ppe_type in ("helmet", "mask"):
+        return w < MIN_HEAD_PX
+    return w < MIN_TORSO_PX
+
+
+# ---------------------------------------------------------------------------
+# CROP pipeline (klasik — doğrudan atama)
+# ---------------------------------------------------------------------------
+
+def run_crop_pipeline(video_path, person_model, helmet_model, vest_model, mask_model,
+                      h_ids, v_ids, m_ids) -> dict[int, dict]:
+    cap    = cv2.VideoCapture(str(video_path))
+    states = _new_states()
     id_map, id_next = {}, [1]
-
-    def did(raw):
-        if raw not in id_map:
-            id_map[raw] = id_next[0]; id_next[0] += 1
-        return id_map[raw]
 
     while True:
         ok, frame = cap.read()
@@ -297,17 +287,6 @@ def run_scene_pipeline(video_path: Path, person_model, helmet_model, vest_model,
             tracker=TRACKER, persist=True,
             imgsz=IMGSZ, conf=PERSON_CONF, device=DEVICE, verbose=False,
         )[0]
-
-        hres_scene = helmet_model.predict(frame, classes=h_ids, imgsz=IMGSZ,
-                                          conf=HELMET_CONF, device=DEVICE, verbose=False)[0]
-        vres_scene = vest_model.predict(frame, classes=v_ids, imgsz=IMGSZ,
-                                        conf=VEST_CONF, device=DEVICE, verbose=False)[0]
-        mres_scene = mask_model.predict(frame, classes=m_ids, imgsz=IMGSZ,
-                                        conf=MASK_CONF, device=DEVICE, verbose=False)[0]
-        all_helmet = scene_dets(helmet_model, hres_scene, h_ids, HELMET_CONF)
-        all_vest   = scene_dets(vest_model,   vres_scene, v_ids, VEST_CONF)
-        all_mask   = scene_dets(mask_model,   mres_scene, m_ids, MASK_CONF)
-
         boxes = p_result.boxes
         if boxes is None or boxes.id is None:
             continue
@@ -315,27 +294,81 @@ def run_scene_pipeline(video_path: Path, person_model, helmet_model, vest_model,
             track_id = int(tid)
             states[track_id]["frame_count"] += 1
             x1, y1, x2, y2 = map(int, box.tolist())
-            hlabel, _ = match_to_person(all_helmet, x1, y1, x2, y2)
-            vlabel, _ = match_to_person(all_vest,   x1, y1, x2, y2)
-            mlabel, _ = match_to_person(all_mask,   x1, y1, x2, y2)
-            states[track_id]["hardhat"].append(hlabel)
-            states[track_id]["vest"].append(vlabel)
-            states[track_id]["mask"].append(mlabel)
+
+            for ppe, model, ids, conf_thr, key, isz in [
+                ("helmet", helmet_model, h_ids, HELMET_CONF, "hardhat", IMGSZ),
+                ("vest",   vest_model,   v_ids, VEST_CONF,   "vest",    IMGSZ),
+                ("mask",   mask_model,   m_ids, MASK_CONF,   "mask",    MASK_IMGSZ),
+            ]:
+                crop, _, _ = crop_ppe(frame, x1, y1, x2, y2, ppe)
+                label = "unknown"
+                if _crop_ok(crop) and not is_region_too_small(x1, y1, x2, y2, ppe):
+                    res = model.predict(crop, classes=ids, imgsz=isz,
+                                        conf=conf_thr, device=DEVICE, verbose=False)[0]
+                    label, _ = best_det_label(model, res, ids, conf_thr)
+                states[track_id][key].append(label)
 
     cap.release()
+    return _finalize(states, id_map, id_next)
 
-    results = {}
-    for track_id, st in states.items():
-        if st["frame_count"] < MIN_TRACK_FRAMES:
-            continue  # ghost track — atla
-        hvote = vote(st["hardhat"], min_known=3)
-        vvote = vote(st["vest"],    min_known=2)
-        mvote = vote(st["mask"],    min_known=2)
-        results[did(track_id)] = {
-            "helmet": hvote, "vest": vvote, "mask": mvote,
-            "violations": violations_from_votes(hvote, vvote, mvote),
-        }
-    return results
+
+# ---------------------------------------------------------------------------
+# CROP+ASSOC pipeline (geometrik doğrulamalı)
+# ---------------------------------------------------------------------------
+
+def run_assoc_pipeline(video_path, person_model, helmet_model, vest_model, mask_model,
+                       h_ids, v_ids, m_ids) -> dict[int, dict]:
+    cap    = cv2.VideoCapture(str(video_path))
+    states = _new_states()
+    id_map, id_next = {}, [1]
+
+    while True:
+        ok, frame = cap.read()
+        if not ok:
+            break
+        fh, fw = frame.shape[:2]
+        p_result = person_model.track(
+            frame, classes=class_ids(person_model, ["person"]),
+            tracker=TRACKER, persist=True,
+            imgsz=IMGSZ, conf=PERSON_CONF, device=DEVICE, verbose=False,
+        )[0]
+        boxes = p_result.boxes
+        if boxes is None or boxes.id is None:
+            continue
+
+        all_persons_frame = [
+            {"tid": int(tid), "box": list(map(int, box.tolist()))}
+            for box, tid in zip(boxes.xyxy, boxes.id)
+        ]
+
+        for box, tid in zip(boxes.xyxy, boxes.id):
+            track_id = int(tid)
+            states[track_id]["frame_count"] += 1
+            x1, y1, x2, y2 = map(int, box.tolist())
+
+            for ppe, model, ids, conf_thr, key, isz in [
+                ("helmet", helmet_model, h_ids, HELMET_CONF, "hardhat", IMGSZ),
+                ("vest",   vest_model,   v_ids, VEST_CONF,   "vest",    IMGSZ),
+                ("mask",   mask_model,   m_ids, MASK_CONF,   "mask",    MASK_IMGSZ),
+            ]:
+                crop, ox, oy = crop_ppe(frame, x1, y1, x2, y2, ppe)
+                label = "unknown"
+                if _crop_ok(crop) and not is_region_too_small(x1, y1, x2, y2, ppe):
+                    res  = model.predict(crop, classes=ids, imgsz=isz,
+                                         conf=conf_thr, device=DEVICE, verbose=False)[0]
+                    dets = _collect_dets(model, res, ids, conf_thr)
+                    if dets:
+                        best    = max(dets, key=lambda d: d["conf"])
+                        bbox_f  = crop_to_frame(best["bbox"], ox, oy, fh, fw)
+                        label   = validate_ppe(bbox_f, best["label"], track_id,
+                                               all_persons_frame, ppe)
+                    elif crop_has_neighbor([ox, oy, ox + crop.shape[1], oy + crop.shape[0]],
+                                           all_persons_frame, track_id):
+                        label = "unknown"
+                states[track_id][key].append(label)
+
+    cap.release()
+    return _finalize(states, id_map, id_next)
 
 
 # ---------------------------------------------------------------------------
@@ -343,7 +376,6 @@ def run_scene_pipeline(video_path: Path, person_model, helmet_model, vest_model,
 # ---------------------------------------------------------------------------
 
 def summarize(results: dict[int, dict]) -> dict:
-    """Sonuçları özetle: kişi sayısı + ihlal sayıları."""
     counts = {"no_helmet": 0, "no_vest": 0, "no_mask": 0}
     for p in results.values():
         for v in p["violations"]:
@@ -351,13 +383,12 @@ def summarize(results: dict[int, dict]) -> dict:
     return {"person_count": len(results), "violations": counts}
 
 
-def print_result(name: str, pipeline: str, results: dict[int, dict], gt: dict):
+def print_result(pipeline: str, results: dict[int, dict], gt: dict):
     summary = summarize(results)
     print(f"\n  [{pipeline.upper()}]  kişi={summary['person_count']}  ihlaller={summary['violations']}")
     for pid, p in sorted(results.items()):
         viols = p["violations"] or ["temiz"]
-        print(f"    ID{pid}: helmet={p['helmet'][:12]}  vest={p['vest'][:12]}  mask={p['mask'][:12]}  → {viols}")
-    # Basit uyum kontrolü
+        print(f"    ID{pid}: helmet={p['helmet'][:14]}  vest={p['vest'][:14]}  mask={p['mask'][:8]}  → {viols}")
     gt_viols = gt.get("expected_violations", {})
     mismatches = []
     for viol, expected in gt_viols.items():
@@ -368,9 +399,9 @@ def print_result(name: str, pipeline: str, results: dict[int, dict], gt: dict):
         elif got != expected:
             mismatches.append(f"{viol}: {got} (beklenen: {expected})")
     if mismatches:
-        print(f"    ⚠ Uyumsuzluk: {', '.join(mismatches)}")
+        print(f"    ⚠  Uyumsuzluk: {', '.join(mismatches)}")
     else:
-        print(f"    ✓ Ground truth ile uyumlu")
+        print(f"    ✓  Ground truth ile uyumlu")
 
 
 # ---------------------------------------------------------------------------
@@ -380,11 +411,9 @@ def print_result(name: str, pipeline: str, results: dict[int, dict], gt: dict):
 def main():
     print(f"Device: {DEVICE}")
     print("Modeller yukleniyor...")
-    person_model = YOLO(PERSON_MODEL_PATH)
     helmet_model = YOLO(HELMET_MODEL_PATH)
     vest_model   = YOLO(VEST_MODEL_PATH)
     mask_model   = YOLO(MASK_MODEL_PATH)
-
     h_ids = class_ids(helmet_model, HELMET_CLASSES)
     v_ids = class_ids(vest_model,   VEST_CLASSES)
     m_ids = class_ids(mask_model,   MASK_CLASSES)
@@ -407,18 +436,21 @@ def main():
         print(f"VIDEO: {name}  —  GT: {gt.get('notes', '?')}")
         print(f"{'='*60}")
 
-        # Trackers'ı sıfırla: her pipeline için person_model yeniden yüklenir
-        # (bytetrack state'ini temizlemek için)
+        # Her pipeline için ayrı person_model (tracker state'ini sıfırla)
         pm_crop  = YOLO(PERSON_MODEL_PATH)
-        pm_scene = YOLO(PERSON_MODEL_PATH)
+        pm_assoc = YOLO(PERSON_MODEL_PATH)
 
-        print("  [CROP]  çalışıyor...")
-        crop_res  = run_crop_pipeline(video_path, pm_crop,  helmet_model, vest_model, mask_model, h_ids, v_ids, m_ids)
-        print("  [SCENE] çalışıyor...")
-        scene_res = run_scene_pipeline(video_path, pm_scene, helmet_model, vest_model, mask_model, h_ids, v_ids, m_ids)
+        print("  [CROP]       çalışıyor...")
+        crop_res  = run_crop_pipeline(video_path, pm_crop,
+                                      helmet_model, vest_model, mask_model,
+                                      h_ids, v_ids, m_ids)
+        print("  [CROP+ASSOC] çalışıyor...")
+        assoc_res = run_assoc_pipeline(video_path, pm_assoc,
+                                       helmet_model, vest_model, mask_model,
+                                       h_ids, v_ids, m_ids)
 
-        print_result(name, "crop",  crop_res,  gt)
-        print_result(name, "scene", scene_res, gt)
+        print_result("crop",       crop_res,  gt)
+        print_result("crop+assoc", assoc_res, gt)
 
     print(f"\n{'='*60}")
     print("Karsilastirma tamamlandi.")
