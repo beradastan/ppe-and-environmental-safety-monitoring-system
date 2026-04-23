@@ -185,15 +185,26 @@ def _new_states():
     })
 
 
-def _finalize(states, id_map, id_next) -> dict[int, dict]:
+def _finalize(states, id_map, id_next,
+              decision_counts=None) -> tuple[dict[int, dict], dict]:
+    """
+    Döner: (results, metrics)
+    metrics: raw_track_count, mature_track_count, unknown_rate, decision_counts
+    """
     def did(raw):
         if raw not in id_map:
             id_map[raw] = id_next[0]; id_next[0] += 1
         return id_map[raw]
+
+    raw_count = len(states)
+    mature_count = 0
+    unknowns = {"helmet": 0, "vest": 0, "mask": 0}
     results = {}
+
     for track_id, st in states.items():
         if st["frame_count"] < MIN_TRACK_FRAMES:
             continue
+        mature_count += 1
         hvote = vote(st["hardhat"], min_known=3)
         vvote = vote(st["vest"],    min_known=2)
         mvote = vote(st["mask"],    min_known=1)
@@ -201,7 +212,18 @@ def _finalize(states, id_map, id_next) -> dict[int, dict]:
             "helmet": hvote, "vest": vvote, "mask": mvote,
             "violations": violations_from_votes(hvote, vvote, mvote),
         }
-    return results
+        if hvote == "unknown": unknowns["helmet"] += 1
+        if vvote == "unknown": unknowns["vest"]   += 1
+        if mvote == "unknown": unknowns["mask"]   += 1
+
+    n = max(1, mature_count)
+    metrics = {
+        "raw_track_count":    raw_count,
+        "mature_track_count": mature_count,
+        "unknown_rate": {k: round(v / n, 2) for k, v in unknowns.items()},
+        "decision_counts": decision_counts or {},
+    }
+    return results, metrics
 
 
 # ---------------------------------------------------------------------------
@@ -325,7 +347,7 @@ def run_crop_pipeline(video_path, person_model, helmet_model, vest_model, mask_m
                 states[track_id][key].append(label)
 
     cap.release()
-    return _finalize(states, id_map, id_next)
+    return _finalize(states, id_map, id_next)  # (results, metrics)
 
 
 # ---------------------------------------------------------------------------
@@ -333,10 +355,14 @@ def run_crop_pipeline(video_path, person_model, helmet_model, vest_model, mask_m
 # ---------------------------------------------------------------------------
 
 def run_assoc_pipeline(video_path, person_model, helmet_model, vest_model, mask_model,
-                       h_ids, v_ids, m_ids) -> dict[int, dict]:
+                       h_ids, v_ids, m_ids):
     cap    = cv2.VideoCapture(str(video_path))
     states = _new_states()
     id_map, id_next = {}, [1]
+    dcounts: dict[str, dict[str, int]] = {
+        ppe: {"accepted": 0, "rejected": 0, "ambiguous": 0, "no_det": 0, "no_target": 0}
+        for ppe in ("helmet", "vest", "mask")
+    }
 
     while True:
         ok, frame = cap.read()
@@ -374,17 +400,20 @@ def run_assoc_pipeline(video_path, person_model, helmet_model, vest_model, mask_
                                          conf=conf_thr, device=DEVICE, verbose=False)[0]
                     dets = _collect_dets(model, res, ids, conf_thr)
                     if dets:
-                        best    = max(dets, key=lambda d: d["conf"])
-                        bbox_f  = crop_to_frame(best["bbox"], ox, oy, fh, fw)
-                        label   = validate_ppe(bbox_f, best["label"], track_id,
-                                               all_persons_frame, ppe)
-                    elif crop_has_neighbor([ox, oy, ox + crop.shape[1], oy + crop.shape[0]],
-                                           all_persons_frame, track_id):
-                        label = "unknown"
+                        best   = max(dets, key=lambda d: d["conf"])
+                        bbox_f = crop_to_frame(best["bbox"], ox, oy, fh, fw)
+                        label  = validate_ppe(bbox_f, best["label"], track_id,
+                                              all_persons_frame, ppe)
+                        dcounts[ppe]["accepted" if label != "unknown" else "rejected"] += 1
+                    else:
+                        neighbor_overlap_score(
+                            [ox, oy, ox + crop.shape[1], oy + crop.shape[0]],
+                            all_persons_frame, track_id)
+                        dcounts[ppe]["no_det"] += 1
                 states[track_id][key].append(label)
 
     cap.release()
-    return _finalize(states, id_map, id_next)
+    return _finalize(states, id_map, id_next, dcounts)
 
 
 # ---------------------------------------------------------------------------
@@ -399,9 +428,21 @@ def summarize(results: dict[int, dict]) -> dict:
     return {"person_count": len(results), "violations": counts}
 
 
-def print_result(pipeline: str, results: dict[int, dict], gt: dict):
+def print_result(pipeline: str, results: dict[int, dict], gt: dict, metrics: dict):
     summary = summarize(results)
-    print(f"\n  [{pipeline.upper()}]  kişi={summary['person_count']}  ihlaller={summary['violations']}")
+    raw  = metrics.get("raw_track_count", "?")
+    mat  = metrics.get("mature_track_count", "?")
+    urate = metrics.get("unknown_rate", {})
+    print(f"\n  [{pipeline.upper()}]  kişi={summary['person_count']}"
+          f"  raw_track={raw}  mature={mat}  ihlaller={summary['violations']}")
+    print(f"    unknown_rate → helmet={urate.get('helmet','?')}  "
+          f"vest={urate.get('vest','?')}  mask={urate.get('mask','?')}")
+    dc = metrics.get("decision_counts", {})
+    if dc:
+        for ppe, cnts in dc.items():
+            print(f"    [{ppe}] accepted={cnts.get('accepted',0)}  "
+                  f"rejected={cnts.get('rejected',0)}  "
+                  f"no_det={cnts.get('no_det',0)}")
     for pid, p in sorted(results.items()):
         viols = p["violations"] or ["temiz"]
         print(f"    ID{pid}: helmet={p['helmet'][:14]}  vest={p['vest'][:14]}  mask={p['mask'][:8]}  → {viols}")
@@ -457,16 +498,16 @@ def main():
         pm_assoc = YOLO(PERSON_MODEL_PATH)
 
         print("  [CROP]       çalışıyor...")
-        crop_res  = run_crop_pipeline(video_path, pm_crop,
-                                      helmet_model, vest_model, mask_model,
-                                      h_ids, v_ids, m_ids)
+        crop_res,  crop_metrics  = run_crop_pipeline(video_path, pm_crop,
+                                                     helmet_model, vest_model, mask_model,
+                                                     h_ids, v_ids, m_ids)
         print("  [CROP+ASSOC] çalışıyor...")
-        assoc_res = run_assoc_pipeline(video_path, pm_assoc,
-                                       helmet_model, vest_model, mask_model,
-                                       h_ids, v_ids, m_ids)
+        assoc_res, assoc_metrics = run_assoc_pipeline(video_path, pm_assoc,
+                                                      helmet_model, vest_model, mask_model,
+                                                      h_ids, v_ids, m_ids)
 
-        print_result("crop",       crop_res,  gt)
-        print_result("crop+assoc", assoc_res, gt)
+        print_result("crop",       crop_res,  gt, crop_metrics)
+        print_result("crop+assoc", assoc_res, gt, assoc_metrics)
 
     print(f"\n{'='*60}")
     print("Karsilastirma tamamlandi.")
