@@ -312,9 +312,11 @@ def is_region_too_small(x1: int, y1: int, x2: int, y2: int, ppe_type: str) -> bo
 def run_crop_pipeline(video_path, person_model, helmet_model, vest_model, mask_model,
                       h_ids, v_ids, m_ids):
     cap           = cv2.VideoCapture(str(video_path))
+    fps           = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    max_gap       = max(10, int(fps * 2))
     states        = _new_states()
     stable_states = _new_states()
-    reattacher    = TrackReattacher()
+    reattacher    = TrackReattacher(max_gap_frames=max_gap)
 
     while True:
         ok, frame = cap.read()
@@ -336,7 +338,7 @@ def run_crop_pipeline(video_path, person_model, helmet_model, vest_model, mask_m
         for box, tid in zip(boxes.xyxy, boxes.id):
             track_id   = int(tid)
             stable_pid = stable_map.get(track_id, track_id)
-            states[track_id]["frame_count"]        += 1
+            states[track_id]["frame_count"]          += 1
             stable_states[stable_pid]["frame_count"] += 1
             x1, y1, x2, y2 = map(int, box.tolist())
 
@@ -357,6 +359,7 @@ def run_crop_pipeline(video_path, person_model, helmet_model, vest_model, mask_m
     cap.release()
     raw_results,    raw_metrics    = _finalize(states)
     stable_results, stable_metrics = _finalize(stable_states)
+    _merge_reattach_stats(stable_metrics, reattacher)
     return raw_results, raw_metrics, stable_results, stable_metrics
 
 
@@ -367,9 +370,11 @@ def run_crop_pipeline(video_path, person_model, helmet_model, vest_model, mask_m
 def run_assoc_pipeline(video_path, person_model, helmet_model, vest_model, mask_model,
                        h_ids, v_ids, m_ids):
     cap           = cv2.VideoCapture(str(video_path))
+    fps           = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    max_gap       = max(10, int(fps * 2))
     states        = _new_states()
     stable_states = _new_states()
-    reattacher    = TrackReattacher()
+    reattacher    = TrackReattacher(max_gap_frames=max_gap)
     dcounts: dict[str, dict[str, int]] = {
         ppe: {"accepted": 0, "rejected": 0, "ambiguous": 0, "no_det": 0, "no_target": 0}
         for ppe in ("helmet", "vest", "mask")
@@ -431,7 +436,22 @@ def run_assoc_pipeline(video_path, person_model, helmet_model, vest_model, mask_
     cap.release()
     raw_results,    raw_metrics    = _finalize(states, dcounts)
     stable_results, stable_metrics = _finalize(stable_states)
+    _merge_reattach_stats(stable_metrics, reattacher)
     return raw_results, raw_metrics, stable_results, stable_metrics
+
+
+# ---------------------------------------------------------------------------
+# Yardımcı: reattacher istatistiklerini stable_metrics'e ekle
+# ---------------------------------------------------------------------------
+
+def _merge_reattach_stats(stable_metrics: dict, reattacher) -> None:
+    """reattacher.stats() çıktısını stable_metrics sözlüğüne in-place ekler."""
+    rs = reattacher.stats()
+    stable_metrics["stable_seen_any"]        = rs["next_pid"] - 1
+    stable_metrics["new_stable_count"]       = rs["new_stable_count"]
+    stable_metrics["reattached_count"]       = rs["reattached_count"]
+    stable_metrics["failed_reattach_count"]  = rs["failed_reattach_count"]
+    stable_metrics["avg_reattach_score"]     = rs["avg_reattach_score"]
 
 
 # ---------------------------------------------------------------------------
@@ -454,16 +474,23 @@ def print_result(pipeline: str,
     stable_sum = summarize(stable_results)
 
     raw_track  = raw_metrics.get("raw_track_count",    "?")
-    mature     = raw_metrics.get("mature_track_count", "?")
-    stable_ppl = stable_metrics.get("mature_track_count", "?")
+    mature_raw = raw_metrics.get("mature_track_count", "?")
+    st_seen    = stable_metrics.get("stable_seen_any",        "?")
+    st_mature  = stable_metrics.get("mature_track_count",     "?")
+    new_st     = stable_metrics.get("new_stable_count",       "?")
+    reattached = stable_metrics.get("reattached_count",       "?")
+    failed_ra  = stable_metrics.get("failed_reattach_count",  "?")
+    avg_score  = stable_metrics.get("avg_reattach_score",     "?")
     gt_count   = gt.get("person_count", "?")
     urate      = raw_metrics.get("unknown_rate", {})
 
     print(f"\n  [{pipeline.upper()}]")
-    print(f"    Tracks  → raw={raw_track}  mature={mature}"
-          f"  | stable_people={stable_ppl}  GT={gt_count}")
-    print(f"    Violations by raw:    {raw_sum['violations']}")
-    print(f"    Violations by stable: {stable_sum['violations']}")
+    print(f"    Tracks       → raw_track={raw_track}  mature_raw={mature_raw}"
+          f"  | stable_seen={st_seen}  stable_mature={st_mature}  GT={gt_count}")
+    print(f"    Reattach     → new={new_st}  reattached={reattached}"
+          f"  failed={failed_ra}  avg_score={avg_score}")
+    print(f"    Violations   by raw:    {raw_sum['violations']}")
+    print(f"    Violations   by stable: {stable_sum['violations']}")
     print(f"    unknown_rate → helmet={urate.get('helmet','?')}  "
           f"vest={urate.get('vest','?')}  mask={urate.get('mask','?')}")
 
@@ -479,7 +506,7 @@ def print_result(pipeline: str,
         viols = p["violations"] or ["temiz"]
         print(f"    ID{pid}: helmet={p['helmet'][:14]}  vest={p['vest'][:14]}  mask={p['mask'][:8]}  → {viols}")
 
-    # GT comparison against stable violations
+    # GT karşılaştırması — stable violations üzerinden
     gt_viols   = gt.get("expected_violations", {})
     mismatches = []
     for viol, expected in gt_viols.items():
