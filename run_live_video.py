@@ -715,7 +715,7 @@ def run(args):
     m_ids = class_ids(mask_model,   MASK_CLASSES)
 
     from event_manager import PersonEventManager
-    from track_reattacher import TrackReattacher
+    from tracking_identity import TrackReattacher
     event_manager = PersonEventManager(
         new_confirm_sec=3.0,
         resolved_confirm_sec=5.0,
