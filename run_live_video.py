@@ -219,8 +219,19 @@ STATES_CLEANUP_EVERY = 300  # her N frame'de kayıp track temizliği
 
 MIN_CROP_PX      = 40   # crop bu boyutun altındaysa model çağrılmaz (kenar kişi)
 MIN_TRACK_FRAMES     = 10    # bu kadar frame görülmemiş track'lar ghost — event'e dahil edilmez
-MIN_SELF_CONTAINMENT = 0.20  # PPE bbox'ının en az bu kadarı kişinin anatomik bölgesinde olmalı
-MAX_NEIGHBOR_RATIO   = 0.80  # Komşunun skoru bu oranı geçerse → ambiguous → unknown
+# PPE tipine göre geometrik eşikler
+# mask daha hoşgörülü: yüz bölgesi küçük, biraz komşu üstüne gelse yine de reddedilmemeli
+# vest daha sıkı: büyük nesne, komşu üstüne gelmesi nadiren meşru
+PPE_MIN_SELF_SCORE: dict[str, float] = {
+    "helmet": 0.20,
+    "vest":   0.20,
+    "mask":   0.15,
+}
+PPE_MAX_NEIGHBOR_RATIO: dict[str, float] = {
+    "helmet": 0.80,
+    "vest":   0.75,
+    "mask":   0.90,
+}
 MIN_HEAD_PX  = 30   # kafa/maske anatomik bölgesi bu genişliğin altındaysa çıkarım yapma
 MIN_TORSO_PX = 50   # gövde/yelek bölgesi için minimum genişlik
 TELEMETRY    = False  # PPE karar telemetrisi (True → her kararda konsola log yazar)
@@ -371,14 +382,27 @@ def _validate_ppe_scored(
     all_persons_frame: list[dict],
     ppe_type: str,
 ) -> tuple[str, float, float, str]:
-    """Geometrik doğrulama + telemetri için skor bilgisi döndürür: (label, own_score, max_nb, reason)."""
+    """
+    PPE bbox'ını geometrik olarak değerlendirir.
+
+    Döner: (final_label, own_score, max_neighbor_score, reason)
+      reason ∈ {"accepted", "rejected", "ambiguous", "no_target"}
+      final_label = label  →  accepted
+      final_label = "unknown" →  rejected | ambiguous | no_target
+    """
     target = next((p for p in all_persons_frame if p["tid"] == target_tid), None)
     if target is None:
         return "unknown", 0.0, 0.0, "no_target"
+
+    min_self = PPE_MIN_SELF_SCORE.get(ppe_type, 0.20)
+    max_nb_r = PPE_MAX_NEIGHBOR_RATIO.get(ppe_type, 0.80)
+
     own_region = anatomical_region(*target["box"], ppe_type)
     own_score  = _containment(ppe_bbox_frame, own_region)
-    if own_score < MIN_SELF_CONTAINMENT:
-        return "unknown", own_score, 0.0, "low_self_score"
+
+    if own_score < min_self:
+        return "unknown", own_score, 0.0, "rejected"
+
     max_nb = 0.0
     for p in all_persons_frame:
         if p["tid"] == target_tid:
@@ -386,8 +410,9 @@ def _validate_ppe_scored(
         nb_score = _containment(ppe_bbox_frame, anatomical_region(*p["box"], ppe_type))
         if nb_score > max_nb:
             max_nb = nb_score
-        if nb_score > own_score * MAX_NEIGHBOR_RATIO:
-            return "unknown", own_score, nb_score, "neighbor_ambiguous"
+        if nb_score > own_score * max_nb_r:
+            return "unknown", own_score, nb_score, "ambiguous"
+
     return label, own_score, max_nb, "accepted"
 
 
@@ -402,19 +427,67 @@ def validate_ppe(
     return _validate_ppe_scored(ppe_bbox_frame, label, target_tid, all_persons_frame, ppe_type)[0]
 
 
+def neighbor_overlap_score(
+    crop_box: list,
+    all_persons_frame: list[dict],
+    target_tid: int,
+) -> float:
+    """Crop bölgesine en çok giren komşunun overlap oranını döndür (0.0–1.0).
+    Sıfır → komşu yok; 1.0 → crop tamamen komşunun içinde."""
+    max_score = 0.0
+    for p in all_persons_frame:
+        if p["tid"] == target_tid:
+            continue
+        score = _containment(p["box"], crop_box)
+        if score > max_score:
+            max_score = score
+    return max_score
+
+
 def crop_has_neighbor(
     crop_box: list,
     all_persons_frame: list[dict],
     target_tid: int,
     thresh: float = 0.25,
 ) -> bool:
-    """Crop bölgesine komşu kişi giriyorsa True (bbox-yok fallback için)."""
-    for p in all_persons_frame:
-        if p["tid"] == target_tid:
-            continue
-        if _containment(p["box"], crop_box) > thresh:
-            return True
-    return False
+    """Crop bölgesine komşu kişi giriyorsa True — neighbor_overlap_score üstüne thin wrapper."""
+    return neighbor_overlap_score(crop_box, all_persons_frame, target_tid) > thresh
+
+
+def _iou(a: list, b: list) -> float:
+    """İki bbox arasında Intersection over Union."""
+    ix1 = max(a[0], b[0]); iy1 = max(a[1], b[1])
+    ix2 = min(a[2], b[2]); iy2 = min(a[3], b[3])
+    inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
+    if inter == 0:
+        return 0.0
+    area_a = (a[2] - a[0]) * (a[3] - a[1])
+    area_b = (b[2] - b[0]) * (b[3] - b[1])
+    return inter / max(1, area_a + area_b - inter)
+
+
+def _global_assign_ppe(
+    candidates: list[dict],
+    iou_thresh: float = 0.40,
+) -> dict[int, dict]:
+    """
+    Greedy one-to-one: aynı fiziksel PPE bbox birden fazla kişiye gitmesin.
+    Adaylar conf × own_score'a göre azalan sırada işlenir.
+    Döner: {track_id: cand}  — sadece "accepted" adaylar.
+    """
+    sorted_c = sorted(
+        (c for c in candidates if c["reason"] == "accepted"),
+        key=lambda c: c["conf"] * c["own_score"],
+        reverse=True,
+    )
+    used: list[list] = []
+    result: dict[int, dict] = {}
+    for cand in sorted_c:
+        bbox = cand["bbox_f"]
+        if not any(_iou(bbox, u) > iou_thresh for u in used):
+            used.append(bbox)
+            result[cand["tid"]] = cand
+    return result
 
 
 def is_region_too_small(x1: int, y1: int, x2: int, y2: int, ppe_type: str) -> bool:
@@ -727,17 +800,23 @@ def run(args):
                 ]
 
             if boxes is not None and boxes.id is not None:
+                # ── Faz 1: çıkarım + aday toplama ───────────────────────────────
+                h_cands: list[dict] = []
+                v_cands: list[dict] = []
+                m_cands: list[dict] = []
+                person_coords: dict[int, tuple] = {}
+
                 for box, tid in zip(boxes.xyxy, boxes.id):
                     track_id = int(tid)
                     seen_track_ids.add(track_id)
                     states[track_id]["frame_count"] += 1
                     x1, y1, x2, y2 = map(int, box.tolist())
+                    person_coords[track_id] = (x1, y1, x2, y2)
 
                     # Helmet
                     hcrop, hox, hoy = crop_ppe(frame, x1, y1, x2, y2, "helmet")
-                    hlabel, hconf, hbbox = "unknown", 0.0, None
                     if _crop_ok(hcrop) and not is_region_too_small(x1, y1, x2, y2, "helmet"):
-                        hres  = helmet_model.predict(
+                        hres = helmet_model.predict(
                             hcrop, classes=h_ids, imgsz=IMGSZ,
                             conf=HELMET_CONF, device=device, verbose=False,
                         )[0]
@@ -747,27 +826,28 @@ def run(args):
                             hbbox_f = list(crop_to_frame(best["bbox"], hox, hoy, fh, fw))
                             vlbl, h_own, h_nb, h_reason = _validate_ppe_scored(
                                 hbbox_f, best["label"], track_id, all_persons_frame, "helmet")
-                            if TELEMETRY:
+                            h_cands.append({
+                                "tid": track_id, "bbox_f": hbbox_f,
+                                "label": vlbl, "raw_label": best["label"],
+                                "conf": best["conf"], "own_score": h_own,
+                                "neighbor_pen": h_nb, "reason": h_reason,
+                            })
+                        else:
+                            h_nb_crop = neighbor_overlap_score(
+                                [hox, hoy, hox + hcrop.shape[1], hoy + hcrop.shape[0]],
+                                all_persons_frame, track_id)
+                            if TELEMETRY and h_nb_crop > 0.10:
                                 _log_ppe_decision(PPEDecision(
                                     frame_idx=frame_idx, stable_pid=track_id, ppe_type="helmet",
-                                    raw_label=best["label"], conf=best["conf"],
-                                    own_score=h_own, neighbor_pen=h_nb,
-                                    ambiguous=(h_nb > h_own * MAX_NEIGHBOR_RATIO),
-                                    accepted=(vlbl != "unknown"), reason=h_reason,
+                                    raw_label="no_det", conf=0.0, own_score=0.0,
+                                    neighbor_pen=h_nb_crop, ambiguous=(h_nb_crop > 0.25),
+                                    accepted=False, reason="no_det",
                                 ))
-                            if vlbl != "unknown":
-                                hlabel, hconf, hbbox = vlbl, best["conf"], hbbox_f
-                        elif crop_has_neighbor([hox, hoy, hox + hcrop.shape[1], hoy + hcrop.shape[0]],
-                                               all_persons_frame, track_id):
-                            hlabel = "unknown"
-                    states[track_id]["hardhat"].append(hlabel)
-                    hvote = vote(states[track_id]["hardhat"], min_known=3)
 
                     # Vest
                     vcrop, vox, voy = crop_ppe(frame, x1, y1, x2, y2, "vest")
-                    vlabel, vconf, vbbox = "unknown", 0.0, None
                     if _crop_ok(vcrop):
-                        vres  = vest_model.predict(
+                        vres = vest_model.predict(
                             vcrop, classes=v_ids, imgsz=IMGSZ,
                             conf=VEST_CONF, device=device, verbose=False,
                         )[0]
@@ -777,27 +857,28 @@ def run(args):
                             vbbox_f = list(crop_to_frame(best["bbox"], vox, voy, fh, fw))
                             vlbl, v_own, v_nb, v_reason = _validate_ppe_scored(
                                 vbbox_f, best["label"], track_id, all_persons_frame, "vest")
-                            if TELEMETRY:
+                            v_cands.append({
+                                "tid": track_id, "bbox_f": vbbox_f,
+                                "label": vlbl, "raw_label": best["label"],
+                                "conf": best["conf"], "own_score": v_own,
+                                "neighbor_pen": v_nb, "reason": v_reason,
+                            })
+                        else:
+                            v_nb_crop = neighbor_overlap_score(
+                                [vox, voy, vox + vcrop.shape[1], voy + vcrop.shape[0]],
+                                all_persons_frame, track_id)
+                            if TELEMETRY and v_nb_crop > 0.10:
                                 _log_ppe_decision(PPEDecision(
                                     frame_idx=frame_idx, stable_pid=track_id, ppe_type="vest",
-                                    raw_label=best["label"], conf=best["conf"],
-                                    own_score=v_own, neighbor_pen=v_nb,
-                                    ambiguous=(v_nb > v_own * MAX_NEIGHBOR_RATIO),
-                                    accepted=(vlbl != "unknown"), reason=v_reason,
+                                    raw_label="no_det", conf=0.0, own_score=0.0,
+                                    neighbor_pen=v_nb_crop, ambiguous=(v_nb_crop > 0.25),
+                                    accepted=False, reason="no_det",
                                 ))
-                            if vlbl != "unknown":
-                                vlabel, vconf, vbbox = vlbl, best["conf"], vbbox_f
-                        elif crop_has_neighbor([vox, voy, vox + vcrop.shape[1], voy + vcrop.shape[0]],
-                                               all_persons_frame, track_id):
-                            vlabel = "unknown"
-                    states[track_id]["vest"].append(vlabel)
-                    vvote = vote(states[track_id]["vest"], min_known=2)
 
                     # Mask
                     mcrop, mox, moy = crop_ppe(frame, x1, y1, x2, y2, "mask")
-                    mlabel, mconf, mbbox = "unknown", 0.0, None
                     if _crop_ok(mcrop) and not is_region_too_small(x1, y1, x2, y2, "mask"):
-                        mres  = mask_model.predict(
+                        mres = mask_model.predict(
                             mcrop, classes=m_ids, imgsz=MASK_IMGSZ,
                             conf=MASK_CONF, device=device, verbose=False,
                         )[0]
@@ -807,19 +888,73 @@ def run(args):
                             mbbox_f = list(crop_to_frame(best["bbox"], mox, moy, fh, fw))
                             vlbl, m_own, m_nb, m_reason = _validate_ppe_scored(
                                 mbbox_f, best["label"], track_id, all_persons_frame, "mask")
-                            if TELEMETRY:
+                            m_cands.append({
+                                "tid": track_id, "bbox_f": mbbox_f,
+                                "label": vlbl, "raw_label": best["label"],
+                                "conf": best["conf"], "own_score": m_own,
+                                "neighbor_pen": m_nb, "reason": m_reason,
+                            })
+                        else:
+                            m_nb_crop = neighbor_overlap_score(
+                                [mox, moy, mox + mcrop.shape[1], moy + mcrop.shape[0]],
+                                all_persons_frame, track_id)
+                            if TELEMETRY and m_nb_crop > 0.10:
                                 _log_ppe_decision(PPEDecision(
                                     frame_idx=frame_idx, stable_pid=track_id, ppe_type="mask",
-                                    raw_label=best["label"], conf=best["conf"],
-                                    own_score=m_own, neighbor_pen=m_nb,
-                                    ambiguous=(m_nb > m_own * MAX_NEIGHBOR_RATIO),
-                                    accepted=(vlbl != "unknown"), reason=m_reason,
+                                    raw_label="no_det", conf=0.0, own_score=0.0,
+                                    neighbor_pen=m_nb_crop, ambiguous=(m_nb_crop > 0.25),
+                                    accepted=False, reason="no_det",
                                 ))
-                            if vlbl != "unknown":
-                                mlabel, mconf, mbbox = vlbl, best["conf"], mbbox_f
-                        elif crop_has_neighbor([mox, moy, mox + mcrop.shape[1], moy + mcrop.shape[0]],
-                                               all_persons_frame, track_id):
-                            mlabel = "unknown"
+
+                # ── Faz 2: global one-to-one atama ──────────────────────────────
+                h_assigned = _global_assign_ppe(h_cands)
+                v_assigned = _global_assign_ppe(v_cands)
+                m_assigned = _global_assign_ppe(m_cands)
+
+                # ── Faz 3: oy güncelleme + persons_with_ppe + görüntü ───────────
+                for box, tid in zip(boxes.xyxy, boxes.id):
+                    track_id = int(tid)
+                    x1, y1, x2, y2 = person_coords[track_id]
+
+                    hcand = h_assigned.get(track_id)
+                    hlabel = hcand["label"] if hcand else "unknown"
+                    hconf  = hcand["conf"]  if hcand else 0.0
+                    hbbox  = hcand["bbox_f"] if hcand else None
+                    if TELEMETRY and hcand:
+                        _log_ppe_decision(PPEDecision(
+                            frame_idx=frame_idx, stable_pid=track_id, ppe_type="helmet",
+                            raw_label=hcand["raw_label"], conf=hcand["conf"],
+                            own_score=hcand["own_score"], neighbor_pen=hcand["neighbor_pen"],
+                            ambiguous=False, accepted=True, reason=hcand["reason"],
+                        ))
+                    states[track_id]["hardhat"].append(hlabel)
+                    hvote = vote(states[track_id]["hardhat"], min_known=3)
+
+                    vcand = v_assigned.get(track_id)
+                    vlabel = vcand["label"] if vcand else "unknown"
+                    vconf  = vcand["conf"]  if vcand else 0.0
+                    vbbox  = vcand["bbox_f"] if vcand else None
+                    if TELEMETRY and vcand:
+                        _log_ppe_decision(PPEDecision(
+                            frame_idx=frame_idx, stable_pid=track_id, ppe_type="vest",
+                            raw_label=vcand["raw_label"], conf=vcand["conf"],
+                            own_score=vcand["own_score"], neighbor_pen=vcand["neighbor_pen"],
+                            ambiguous=False, accepted=True, reason=vcand["reason"],
+                        ))
+                    states[track_id]["vest"].append(vlabel)
+                    vvote = vote(states[track_id]["vest"], min_known=2)
+
+                    mcand = m_assigned.get(track_id)
+                    mlabel = mcand["label"] if mcand else "unknown"
+                    mconf  = mcand["conf"]  if mcand else 0.0
+                    mbbox  = mcand["bbox_f"] if mcand else None
+                    if TELEMETRY and mcand:
+                        _log_ppe_decision(PPEDecision(
+                            frame_idx=frame_idx, stable_pid=track_id, ppe_type="mask",
+                            raw_label=mcand["raw_label"], conf=mcand["conf"],
+                            own_score=mcand["own_score"], neighbor_pen=mcand["neighbor_pen"],
+                            ambiguous=False, accepted=True, reason=mcand["reason"],
+                        ))
                     states[track_id]["mask"].append(mlabel)
                     mvote = vote(states[track_id]["mask"], min_known=1)
 
@@ -830,7 +965,7 @@ def run(args):
                         continue
 
                     color, viols = compliance_color(hvote, vvote, mvote)
-                    did = display_id(track_id)  # kullanıcıya gösterilen sıralı ID
+                    did = display_id(track_id)
                     persons_with_ppe.append({
                         "track_id":     did,
                         "violations":   viols,
@@ -844,8 +979,6 @@ def run(args):
 
                     if display:
                         draw_box(draw_frame, x1, y1, x2, y2, f"ID{did}", color)
-
-                        # hbbox/vbbox/mbbox artık frame koordinatında — crop_to_frame gerekmez
                         ppe_items = [
                             (hbbox, hvote, hconf, "H",
                              COLOR_OK if hvote == "Hardhat" else COLOR_DANGER if hvote == "NO-Hardhat" else COLOR_UNKNOWN),

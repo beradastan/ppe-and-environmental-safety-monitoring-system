@@ -51,9 +51,17 @@ TEMPORAL_WIN     = 20
 MIN_CROP_PX      = 40
 MIN_TRACK_FRAMES = 10
 
-# Geometric association eşikleri
-MIN_SELF_CONTAINMENT = 0.20
-MAX_NEIGHBOR_RATIO   = 0.80
+# PPE tipine göre geometrik eşikler (run_live_video.py ile senkron)
+PPE_MIN_SELF_SCORE: dict[str, float] = {
+    "helmet": 0.20,
+    "vest":   0.20,
+    "mask":   0.15,
+}
+PPE_MAX_NEIGHBOR_RATIO: dict[str, float] = {
+    "helmet": 0.80,
+    "vest":   0.75,
+    "mask":   0.90,
+}
 MIN_HEAD_PX  = 30
 MIN_TORSO_PX = 50
 
@@ -238,26 +246,34 @@ def validate_ppe(ppe_bbox_frame, label, target_tid, all_persons_frame, ppe_type)
     target = next((p for p in all_persons_frame if p["tid"] == target_tid), None)
     if target is None:
         return "unknown"
+    min_self = PPE_MIN_SELF_SCORE.get(ppe_type, 0.20)
+    max_nb_r = PPE_MAX_NEIGHBOR_RATIO.get(ppe_type, 0.80)
     own_region = anatomical_region(*target["box"], ppe_type)
     own_score  = _containment(ppe_bbox_frame, own_region)
-    if own_score < MIN_SELF_CONTAINMENT:
+    if own_score < min_self:
         return "unknown"
     for p in all_persons_frame:
         if p["tid"] == target_tid:
             continue
         nb_score = _containment(ppe_bbox_frame, anatomical_region(*p["box"], ppe_type))
-        if nb_score > own_score * MAX_NEIGHBOR_RATIO:
+        if nb_score > own_score * max_nb_r:
             return "unknown"
     return label
 
 
-def crop_has_neighbor(crop_box, all_persons_frame, target_tid, thresh=0.25) -> bool:
+def neighbor_overlap_score(crop_box, all_persons_frame, target_tid) -> float:
+    max_score = 0.0
     for p in all_persons_frame:
         if p["tid"] == target_tid:
             continue
-        if _containment(p["box"], crop_box) > thresh:
-            return True
-    return False
+        score = _containment(p["box"], crop_box)
+        if score > max_score:
+            max_score = score
+    return max_score
+
+
+def crop_has_neighbor(crop_box, all_persons_frame, target_tid, thresh=0.25) -> bool:
+    return neighbor_overlap_score(crop_box, all_persons_frame, target_tid) > thresh
 
 
 def is_region_too_small(x1: int, y1: int, x2: int, y2: int, ppe_type: str) -> bool:
