@@ -715,12 +715,14 @@ def run(args):
     m_ids = class_ids(mask_model,   MASK_CLASSES)
 
     from event_manager import PersonEventManager
+    from track_reattacher import TrackReattacher
     event_manager = PersonEventManager(
         new_confirm_sec=3.0,
         resolved_confirm_sec=5.0,
         fire_confirm_frames=20,   # artırıldı: false positive bastırma (eski: 2)
         fire_clear_frames=10,
     )
+    reattacher = TrackReattacher()
 
     states = defaultdict(lambda: {
         "hardhat":     deque(maxlen=TEMPORAL_WIN),
@@ -749,17 +751,9 @@ def run(args):
         cv2.namedWindow("Factory Safety", cv2.WINDOW_NORMAL)
         cv2.resizeWindow("Factory Safety", 1280, 720)
 
-    frame_idx      = 0
-    event_count    = 0
-    seen_track_ids: set[int] = set()   # bellek temizliği için
-    _id_map:  dict[int, int] = {}      # bytetrack_id → görsel sıralı ID (1,2,3...)
-    _id_next: list[int]      = [1]     # sonraki atanacak görsel ID
-
-    def display_id(raw: int) -> int:
-        if raw not in _id_map:
-            _id_map[raw] = _id_next[0]
-            _id_next[0] += 1
-        return _id_map[raw]
+    frame_idx         = 0
+    event_count       = 0
+    seen_stable_pids: set[int] = set()   # bellek temizliği için (stable_pid bazlı)
 
     print("Basladi." + (" ESC = cikis." if display else " Ctrl+C = cikis.") + "\n")
 
@@ -771,14 +765,13 @@ def run(args):
             frame_idx += 1
 
             # --- Kayıp track temizliği (bellek sızıntısı önleme) ---
-            if frame_idx % STATES_CLEANUP_EVERY == 0 and seen_track_ids:
-                stale = set(states.keys()) - seen_track_ids
-                for tid in stale:
-                    del states[tid]
-                    _id_map.pop(tid, None)
+            if frame_idx % STATES_CLEANUP_EVERY == 0 and seen_stable_pids:
+                stale = set(states.keys()) - seen_stable_pids
+                for pid in stale:
+                    del states[pid]
                 if stale:
-                    print(f"  [CLEANUP] {len(stale)} kayip track temizlendi. Kalan: {len(states)}")
-                seen_track_ids.clear()
+                    print(f"  [CLEANUP] {len(stale)} kayip stable_pid temizlendi. Kalan: {len(states)}")
+                seen_stable_pids.clear()
 
             # --- Person tracking ---
             p_result = person_model.track(
@@ -793,11 +786,15 @@ def run(args):
             boxes = p_result.boxes
             # Tüm kişileri geometrik doğrulama için önceden topla
             all_persons_frame: list[dict] = []
+            stable_map: dict[int, int] = {}
             if boxes is not None and boxes.id is not None:
                 all_persons_frame = [
                     {"tid": int(tid), "box": list(map(int, box.tolist()))}
                     for box, tid in zip(boxes.xyxy, boxes.id)
                 ]
+                # stable_pid: kısa oklüzyon sonrası aynı kişi yeni raw_tid alsa bile
+                # state ve event_manager aynı kimliği görür
+                stable_map = reattacher.update(all_persons_frame)
 
             if boxes is not None and boxes.id is not None:
                 # ── Faz 1: çıkarım + aday toplama ───────────────────────────────
@@ -807,11 +804,12 @@ def run(args):
                 person_coords: dict[int, tuple] = {}
 
                 for box, tid in zip(boxes.xyxy, boxes.id):
-                    track_id = int(tid)
-                    seen_track_ids.add(track_id)
-                    states[track_id]["frame_count"] += 1
+                    track_id  = int(tid)
+                    stable_pid = stable_map.get(track_id, track_id)
+                    seen_stable_pids.add(stable_pid)
+                    states[stable_pid]["frame_count"] += 1
                     x1, y1, x2, y2 = map(int, box.tolist())
-                    person_coords[track_id] = (x1, y1, x2, y2)
+                    person_coords[stable_pid] = (x1, y1, x2, y2)
 
                     # Helmet
                     hcrop, hox, hoy = crop_ppe(frame, x1, y1, x2, y2, "helmet")
@@ -827,7 +825,7 @@ def run(args):
                             vlbl, h_own, h_nb, h_reason = _validate_ppe_scored(
                                 hbbox_f, best["label"], track_id, all_persons_frame, "helmet")
                             h_cands.append({
-                                "tid": track_id, "bbox_f": hbbox_f,
+                                "tid": stable_pid, "bbox_f": hbbox_f,
                                 "label": vlbl, "raw_label": best["label"],
                                 "conf": best["conf"], "own_score": h_own,
                                 "neighbor_pen": h_nb, "reason": h_reason,
@@ -838,7 +836,7 @@ def run(args):
                                 all_persons_frame, track_id)
                             if TELEMETRY and h_nb_crop > 0.10:
                                 _log_ppe_decision(PPEDecision(
-                                    frame_idx=frame_idx, stable_pid=track_id, ppe_type="helmet",
+                                    frame_idx=frame_idx, stable_pid=stable_pid, ppe_type="helmet",
                                     raw_label="no_det", conf=0.0, own_score=0.0,
                                     neighbor_pen=h_nb_crop, ambiguous=(h_nb_crop > 0.25),
                                     accepted=False, reason="no_det",
@@ -858,7 +856,7 @@ def run(args):
                             vlbl, v_own, v_nb, v_reason = _validate_ppe_scored(
                                 vbbox_f, best["label"], track_id, all_persons_frame, "vest")
                             v_cands.append({
-                                "tid": track_id, "bbox_f": vbbox_f,
+                                "tid": stable_pid, "bbox_f": vbbox_f,
                                 "label": vlbl, "raw_label": best["label"],
                                 "conf": best["conf"], "own_score": v_own,
                                 "neighbor_pen": v_nb, "reason": v_reason,
@@ -869,7 +867,7 @@ def run(args):
                                 all_persons_frame, track_id)
                             if TELEMETRY and v_nb_crop > 0.10:
                                 _log_ppe_decision(PPEDecision(
-                                    frame_idx=frame_idx, stable_pid=track_id, ppe_type="vest",
+                                    frame_idx=frame_idx, stable_pid=stable_pid, ppe_type="vest",
                                     raw_label="no_det", conf=0.0, own_score=0.0,
                                     neighbor_pen=v_nb_crop, ambiguous=(v_nb_crop > 0.25),
                                     accepted=False, reason="no_det",
@@ -889,7 +887,7 @@ def run(args):
                             vlbl, m_own, m_nb, m_reason = _validate_ppe_scored(
                                 mbbox_f, best["label"], track_id, all_persons_frame, "mask")
                             m_cands.append({
-                                "tid": track_id, "bbox_f": mbbox_f,
+                                "tid": stable_pid, "bbox_f": mbbox_f,
                                 "label": vlbl, "raw_label": best["label"],
                                 "conf": best["conf"], "own_score": m_own,
                                 "neighbor_pen": m_nb, "reason": m_reason,
@@ -900,7 +898,7 @@ def run(args):
                                 all_persons_frame, track_id)
                             if TELEMETRY and m_nb_crop > 0.10:
                                 _log_ppe_decision(PPEDecision(
-                                    frame_idx=frame_idx, stable_pid=track_id, ppe_type="mask",
+                                    frame_idx=frame_idx, stable_pid=stable_pid, ppe_type="mask",
                                     raw_label="no_det", conf=0.0, own_score=0.0,
                                     neighbor_pen=m_nb_crop, ambiguous=(m_nb_crop > 0.25),
                                     accepted=False, reason="no_det",
@@ -913,61 +911,61 @@ def run(args):
 
                 # ── Faz 3: oy güncelleme + persons_with_ppe + görüntü ───────────
                 for box, tid in zip(boxes.xyxy, boxes.id):
-                    track_id = int(tid)
-                    x1, y1, x2, y2 = person_coords[track_id]
+                    track_id   = int(tid)
+                    stable_pid = stable_map.get(track_id, track_id)
+                    x1, y1, x2, y2 = person_coords[stable_pid]
 
-                    hcand = h_assigned.get(track_id)
+                    hcand = h_assigned.get(stable_pid)
                     hlabel = hcand["label"] if hcand else "unknown"
                     hconf  = hcand["conf"]  if hcand else 0.0
                     hbbox  = hcand["bbox_f"] if hcand else None
                     if TELEMETRY and hcand:
                         _log_ppe_decision(PPEDecision(
-                            frame_idx=frame_idx, stable_pid=track_id, ppe_type="helmet",
+                            frame_idx=frame_idx, stable_pid=stable_pid, ppe_type="helmet",
                             raw_label=hcand["raw_label"], conf=hcand["conf"],
                             own_score=hcand["own_score"], neighbor_pen=hcand["neighbor_pen"],
                             ambiguous=False, accepted=True, reason=hcand["reason"],
                         ))
-                    states[track_id]["hardhat"].append(hlabel)
-                    hvote = vote(states[track_id]["hardhat"], min_known=3)
+                    states[stable_pid]["hardhat"].append(hlabel)
+                    hvote = vote(states[stable_pid]["hardhat"], min_known=3)
 
-                    vcand = v_assigned.get(track_id)
+                    vcand = v_assigned.get(stable_pid)
                     vlabel = vcand["label"] if vcand else "unknown"
                     vconf  = vcand["conf"]  if vcand else 0.0
                     vbbox  = vcand["bbox_f"] if vcand else None
                     if TELEMETRY and vcand:
                         _log_ppe_decision(PPEDecision(
-                            frame_idx=frame_idx, stable_pid=track_id, ppe_type="vest",
+                            frame_idx=frame_idx, stable_pid=stable_pid, ppe_type="vest",
                             raw_label=vcand["raw_label"], conf=vcand["conf"],
                             own_score=vcand["own_score"], neighbor_pen=vcand["neighbor_pen"],
                             ambiguous=False, accepted=True, reason=vcand["reason"],
                         ))
-                    states[track_id]["vest"].append(vlabel)
-                    vvote = vote(states[track_id]["vest"], min_known=2)
+                    states[stable_pid]["vest"].append(vlabel)
+                    vvote = vote(states[stable_pid]["vest"], min_known=2)
 
-                    mcand = m_assigned.get(track_id)
+                    mcand = m_assigned.get(stable_pid)
                     mlabel = mcand["label"] if mcand else "unknown"
                     mconf  = mcand["conf"]  if mcand else 0.0
                     mbbox  = mcand["bbox_f"] if mcand else None
                     if TELEMETRY and mcand:
                         _log_ppe_decision(PPEDecision(
-                            frame_idx=frame_idx, stable_pid=track_id, ppe_type="mask",
+                            frame_idx=frame_idx, stable_pid=stable_pid, ppe_type="mask",
                             raw_label=mcand["raw_label"], conf=mcand["conf"],
                             own_score=mcand["own_score"], neighbor_pen=mcand["neighbor_pen"],
                             ambiguous=False, accepted=True, reason=mcand["reason"],
                         ))
-                    states[track_id]["mask"].append(mlabel)
-                    mvote = vote(states[track_id]["mask"], min_known=1)
+                    states[stable_pid]["mask"].append(mlabel)
+                    mvote = vote(states[stable_pid]["mask"], min_known=1)
 
                     # Ghost track filtresi: yeterince görülmemiş track'ları atla
-                    if states[track_id]["frame_count"] < MIN_TRACK_FRAMES:
+                    if states[stable_pid]["frame_count"] < MIN_TRACK_FRAMES:
                         if display:
                             draw_box(draw_frame, x1, y1, x2, y2, "...", COLOR_UNKNOWN)
                         continue
 
                     color, viols = compliance_color(hvote, vvote, mvote)
-                    did = display_id(track_id)
                     persons_with_ppe.append({
-                        "track_id":     did,
+                        "track_id":     stable_pid,
                         "violations":   viols,
                         "helmet_status": "ok" if hvote == "Hardhat" else "violation" if hvote == "NO-Hardhat" else "unknown",
                         "vest_status":   "ok" if vvote == "Safety Vest" else "violation" if vvote == "NO-Safety Vest" else "unknown",
@@ -978,7 +976,7 @@ def run(args):
                     })
 
                     if display:
-                        draw_box(draw_frame, x1, y1, x2, y2, f"ID{did}", color)
+                        draw_box(draw_frame, x1, y1, x2, y2, f"ID{stable_pid}", color)
                         ppe_items = [
                             (hbbox, hvote, hconf, "H",
                              COLOR_OK if hvote == "Hardhat" else COLOR_DANGER if hvote == "NO-Hardhat" else COLOR_UNKNOWN),
