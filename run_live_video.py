@@ -231,7 +231,7 @@ IMGSZ        = 640
 TRACKER      = "bytetrack.yaml"   # proje kökündeki özel config (track_buffer=60)
 TEMPORAL_WIN      = 20   # artırıldı: daha kararlı oy (eski: 10)
 STATES_CLEANUP_EVERY = 300  # her N frame'de kayıp track temizliği
-PPE_INFER_EVERY   = 3    # PPE inference her N frame'de bir çalışır (1 = her frame)
+PPE_INFER_EVERY   = 4    # PPE inference her N frame'de bir çalışır (1 = her frame)
 
 MIN_CROP_PX      = 40   # crop bu boyutun altındaysa model çağrılmaz (kenar kişi)
 MIN_TRACK_FRAMES     = 10    # bu kadar frame görülmemiş track'lar ghost — event'e dahil edilmez
