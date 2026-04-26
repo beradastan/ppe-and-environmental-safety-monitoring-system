@@ -1,0 +1,88 @@
+.reports-page {
+  padding: 24px;
+  overflow-y: auto;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.rp-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.rp-period-tabs {
+  display: flex;
+  background: #141428;
+  border: 1px solid #2a2a3e;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.rp-tab {
+  background: none;
+  border: none;
+  color: #7a8aa0;
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 8px 18px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.rp-tab:hover { background: #1e1e32; color: #c0cde0; }
+.rp-tab--active { background: #1a2a4a; color: #4da6ff; font-weight: 700; }
+
+.rp-date-input {
+  background: #1a1a2e;
+  border: 1px solid #2a2a4e;
+  border-radius: 6px;
+  color: #c0cde0;
+  font-size: 0.82rem;
+  padding: 6px 10px;
+  font-family: inherit;
+}
+.rp-date-input:focus { outline: none; border-color: #4d8ef0; }
+
+.rp-summary {
+  display: flex;
+  gap: 14px;
+}
+.rp-sum-card {
+  flex: 1;
+  background: #141428;
+  border: 1px solid #2a2a3e;
+  border-radius: 8px;
+  padding: 14px 16px;
+  text-align: center;
+}
+.rp-sum-val {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: #e0e8f0;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+.rp-sum-label {
+  font-size: 0.72rem;
+  color: #7a8aa0;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.rp-chart-panel {
+  background: #141428;
+  border: 1px solid #2a2a3e;
+  border-radius: 10px;
+  padding: 20px;
+  flex: 1;
+}
+
+.rp-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  color: #7a8aa0;
+  font-size: 0.9rem;
+}

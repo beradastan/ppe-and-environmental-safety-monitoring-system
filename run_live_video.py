@@ -109,16 +109,13 @@ def _build_llm_prompt(payload: dict) -> str:
     persons    = payload.get("persons", [])
     scene      = payload.get("scene", {})
 
-    STATUS_TR = {"ok": "var", "violation": "YOK"}
-
     person_lines = []
     for p in persons:
         tid   = p["track_id"]
         parts = []
         for field, label in [("helmet_status", "baret"), ("vest_status", "yelek"), ("mask_status", "maske")]:
-            st = p.get(field, "unknown")
-            if st in STATUS_TR:
-                parts.append(f"{label}={STATUS_TR[st]}")
+            if p.get(field) == "violation":
+                parts.append(f"{label}=YOK")
         if parts:
             person_lines.append(f"Kisi #{tid}: {', '.join(parts)}")
 
@@ -190,6 +187,24 @@ def _llm_report_async(payload: dict, json_path: Path, cfg: dict) -> None:
             print(f"  [LLM] Rapor yazildi: {json_path.name} — {report}")
         except Exception as e:
             print(f"  [LLM] JSON yazma hatasi: {e}")
+
+        try:
+            try:
+                with open("config.yaml", encoding="utf-8") as f:
+                    _full_cfg = yaml.safe_load(f) or {}
+                _b = _full_cfg.get("backend", {})
+                backend_url = f"http://localhost:{_b.get('port', 5050)}"
+            except Exception:
+                backend_url = "http://localhost:5050"
+            event_id = payload.get("event_id", "")
+            requests.patch(
+                f"{backend_url}/api/events/{event_id}/llm",
+                json={"llm_report": report},
+                timeout=5,
+            )
+            print(f"  [LLM] Backend bildirildi: {event_id}")
+        except Exception as e:
+            print(f"  [LLM] Backend bildirim hatasi: {e}")
     else:
         print("  [LLM] Yanit alinamadi.")
 

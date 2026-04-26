@@ -1,4 +1,4 @@
-const BASE = 'http://localhost:5050'
+const BASE = ''
 
 async function _get(path) {
   const res = await fetch(BASE + path)
@@ -7,7 +7,7 @@ async function _get(path) {
 }
 
 async function _put(path, body) {
-  const res = await fetch(BASE + path, {
+  const res = await fetch(path, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -17,7 +17,7 @@ async function _put(path, body) {
 }
 
 async function _post(path, body) {
-  const res = await fetch(BASE + path, {
+  const res = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -62,5 +62,5 @@ export function updateConfig(config) {
 }
 
 export function imageUrl(eventId, filename) {
-  return `${BASE}/api/images/${eventId}/${filename}`
+  return `/api/images/${eventId}/${filename}`
 }

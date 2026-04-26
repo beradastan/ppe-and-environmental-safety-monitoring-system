@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard.jsx'
 import AlertHistory from './pages/AlertHistory.jsx'
 import Reports from './pages/Reports.jsx'
 import Settings from './pages/Settings.jsx'
+import ErrorBoundary from './components/ErrorBoundary.jsx'
 import socket from './socket.js'
 
 export default function App() {
@@ -44,20 +45,22 @@ export default function App() {
     <div className="app-shell">
       <Navbar page={page} onNavigate={navigateTo} activeAlarms={activeAlarms} />
       <div className="app-content">
-        {page === 'dashboard' && (
-          <Dashboard
-            onNavigate={navigateTo}
-            onSelectEvent={handleSelectFromDashboard}
-          />
-        )}
-        {page === 'alerts' && (
-          <AlertHistory
-            initialSelectedId={pendingSelect}
-            socket={socket}
-          />
-        )}
-        {page === 'reports'  && <Reports />}
-        {page === 'settings' && <Settings />}
+        <ErrorBoundary>
+          {page === 'dashboard' && (
+            <Dashboard
+              onNavigate={navigateTo}
+              onSelectEvent={handleSelectFromDashboard}
+            />
+          )}
+          {page === 'alerts' && (
+            <AlertHistory
+              initialSelectedId={pendingSelect}
+              socket={socket}
+            />
+          )}
+          {page === 'reports'  && <Reports />}
+          {page === 'settings' && <Settings />}
+        </ErrorBoundary>
       </div>
       <ToastContainer toasts={toasts} onDismiss={id => setToasts(prev => prev.filter(t => t.id !== id))} />
     </div>

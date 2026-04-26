@@ -31,10 +31,6 @@ from flask_socketio import SocketIO
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from backend.event_reader import (
-    get_all_events, get_filtered_events, get_event_timeline,
-    get_stats, get_report_data, get_notes, save_note,
-)
 from backend.watcher import ResultsWatcher
 
 logging.basicConfig(
@@ -45,7 +41,7 @@ logging.basicConfig(
 logger = logging.getLogger("app")
 
 # ---------------------------------------------------------------------------
-# Config
+# Config (must be defined before DB setup so _load_config is available)
 # ---------------------------------------------------------------------------
 
 _CONFIG_PATH = PROJECT_ROOT / "config.yaml"
@@ -68,6 +64,87 @@ def _save_config(cfg: dict) -> None:
     with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
         yaml.dump(cfg, f, allow_unicode=True, default_flow_style=False)
 
+
+# ---------------------------------------------------------------------------
+# Reader secimi: database.enabled=true ise DB, aksi halde dosya sistemi
+# ---------------------------------------------------------------------------
+
+def _db_enabled() -> bool:
+    try:
+        cfg = _load_config()
+        return bool(cfg.get("database", {}).get("enabled", False))
+    except Exception:
+        return False
+
+
+_USE_DB = False
+
+if _db_enabled():
+    try:
+        from backend.database.connection import init_pool, init_db
+        import backend.database.reader as _db_reader
+        init_pool()
+        init_db()
+        _USE_DB = True
+        logger.info("DB reader aktif.")
+    except Exception as _db_exc:
+        logger.warning("DB baglantisi kurulamadi, dosya sistemine donuluyor: %s", _db_exc)
+
+if not _USE_DB:
+    import backend.event_reader as _file_reader
+
+
+# Endpoint'lerin cagirdigi tekduzenlesmis yardimcilar
+def _get_all_events():
+    if _USE_DB:
+        return _db_reader.get_all_events()
+    return _file_reader.get_all_events(RESULTS_DIR)
+
+
+def _get_filtered_events(date_str, violation_type, status):
+    if _USE_DB:
+        return _db_reader.get_filtered_events(date_str, violation_type, status)
+    return _file_reader.get_filtered_events(RESULTS_DIR, date_str, violation_type, status)
+
+
+def _get_event_timeline(event_id):
+    if _USE_DB:
+        return _db_reader.get_event_timeline(event_id)
+    return _file_reader.get_event_timeline(RESULTS_DIR, event_id)
+
+
+def _get_notes(event_id):
+    if _USE_DB:
+        return _db_reader.get_notes(event_id)
+    return _file_reader.get_notes(RESULTS_DIR, event_id)
+
+
+def _save_note(event_id, text):
+    if _USE_DB:
+        return _db_reader.save_note(event_id, text)
+    return _file_reader.save_note(RESULTS_DIR, event_id, text)
+
+
+def _get_stats():
+    if _USE_DB:
+        return _db_reader.get_stats()
+    return _file_reader.get_stats(RESULTS_DIR)
+
+
+def _get_report_data(period, date_str):
+    if _USE_DB:
+        return _db_reader.get_report_data(period, date_str)
+    return _file_reader.get_report_data(RESULTS_DIR, period, date_str)
+
+
+def _event_exists(event_id):
+    if _USE_DB:
+        # DB'de event var mi kontrol et
+        from backend.database.connection import db_cursor
+        with db_cursor() as cur:
+            cur.execute("SELECT 1 FROM events WHERE event_id = %s", (event_id,))
+            return cur.fetchone() is not None
+    return (RESULTS_DIR / event_id).exists()
 
 _config      = _load_config()
 _backend_cfg = _config.get("backend", {})
@@ -112,9 +189,9 @@ def api_get_events():
     status         = status         if _STATUS_RE.match(status)        else None
 
     if date_str or violation_type or status:
-        events = get_filtered_events(RESULTS_DIR, date_str, violation_type, status)
+        events = _get_filtered_events(date_str, violation_type, status)
     else:
-        events = get_all_events(RESULTS_DIR)
+        events = _get_all_events()
 
     return jsonify({"events": events, "total": len(events)})
 
@@ -123,10 +200,10 @@ def api_get_events():
 def api_get_timeline(event_id: str):
     if not _EVENT_ID_RE.match(event_id):
         abort(400, "Geçersiz event_id.")
-    if not (RESULTS_DIR / event_id).exists():
+    if not _event_exists(event_id):
         abort(404, f"Event bulunamadı: {event_id}")
-    timeline = get_event_timeline(RESULTS_DIR, event_id)
-    notes    = get_notes(RESULTS_DIR, event_id)
+    timeline = _get_event_timeline(event_id)
+    notes    = _get_notes(event_id)
     return jsonify({"event_id": event_id, "timeline": timeline, "notes": notes})
 
 
@@ -134,13 +211,13 @@ def api_get_timeline(event_id: str):
 def api_add_note(event_id: str):
     if not _EVENT_ID_RE.match(event_id):
         abort(400, "Geçersiz event_id.")
-    if not (RESULTS_DIR / event_id).exists():
+    if not _event_exists(event_id):
         abort(404)
     body = request.get_json(silent=True) or {}
     text = str(body.get("note", "")).strip()
     if not text:
         abort(400, "Not boş olamaz.")
-    entry = save_note(RESULTS_DIR, event_id, text)
+    entry = _save_note(event_id, text)
     return jsonify({"ok": True, "note": entry})
 
 
@@ -160,7 +237,7 @@ def api_get_image(event_id: str, filename: str):
 
 @app.route("/api/stats")
 def api_get_stats():
-    return jsonify(get_stats(RESULTS_DIR))
+    return jsonify(_get_stats())
 
 
 @app.route("/api/reports")
@@ -171,8 +248,23 @@ def api_get_reports():
         abort(400, "period: daily|weekly|monthly")
     if date_str and not _DATE_RE.match(date_str):
         abort(400, "date: YYYY-MM-DD")
-    data = get_report_data(RESULTS_DIR, period, date_str or None)
+    data = _get_report_data(period, date_str or None)
     return jsonify({"period": period, "data": data})
+
+
+@app.route("/api/events/<event_id>/llm", methods=["PATCH"])
+def api_patch_llm(event_id: str):
+    if not _EVENT_ID_RE.match(event_id):
+        abort(400, "Geçersiz event_id.")
+    body   = request.get_json(silent=True) or {}
+    report = str(body.get("llm_report", "")).strip()
+    if not report:
+        abort(400, "llm_report boş olamaz.")
+    if _USE_DB:
+        from backend.database.writer import update_llm_report
+        update_llm_report(event_id, report)
+    socketio.emit("llm_updated", {"event_id": event_id, "llm_report": report})
+    return jsonify({"ok": True})
 
 
 @app.route("/api/config", methods=["GET"])

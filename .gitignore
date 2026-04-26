@@ -35,10 +35,16 @@ env/
 
 # Project specific
 temp_download/
-models/fire_best.pt
-models/ppe_best.pt
-models/hexmon_best.pt
-models/yihong.pt
+models/
+*.pt
+runs/
+debug_frames/
+debug_out/
+debug_out.txt
+compare_results.txt
+*.bak
+frontend/node_modules/
+.claude/
 
 # Results and logs
 results/*

@@ -3,6 +3,13 @@ backend:
   - http://localhost:5173
   host: 0.0.0.0
   port: 5050
+database:
+  enabled: true
+  host: localhost
+  port: 5432
+  name: ppe_db
+  user: postgres
+  password: "1234"
 detection:
   fire_confidence: 0.5
   min_hits: 3

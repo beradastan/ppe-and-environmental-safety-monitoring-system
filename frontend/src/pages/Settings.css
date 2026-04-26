@@ -1,0 +1,126 @@
+.settings-page {
+  padding: 24px;
+  overflow-y: auto;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.settings-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #7a8aa0;
+  font-size: 0.9rem;
+}
+
+.settings-form {
+  width: 100%;
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.settings-note {
+  background: #1a1a10;
+  border: 1px solid #5a5500;
+  border-radius: 8px;
+  color: #c0b050;
+  font-size: 0.82rem;
+  padding: 10px 14px;
+}
+
+.settings-section {
+  background: #141428;
+  border: 1px solid #2a2a3e;
+  border-radius: 10px;
+  padding: 20px;
+}
+.settings-section__title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #7a8aa0;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin-bottom: 16px;
+}
+
+.settings-toggles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 0.88rem;
+  color: #c0cde0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #2a2a3e;
+  background: #1a1a2e;
+  transition: border-color 0.15s;
+}
+.settings-toggle:hover { border-color: #4d8ef0; }
+.settings-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #4da6ff;
+}
+
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+.slider-row:last-child { margin-bottom: 0; }
+.slider-label {
+  font-size: 0.85rem;
+  color: #c0cde0;
+  width: 220px;
+  flex-shrink: 0;
+}
+.slider-input {
+  flex: 1;
+  accent-color: #4da6ff;
+  height: 4px;
+  cursor: pointer;
+}
+.slider-val {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #4da6ff;
+  width: 42px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.settings-footer {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.settings-save-btn {
+  background: #1a3a6a;
+  color: #4da6ff;
+  border: 1px solid #2a5aaa;
+  border-radius: 8px;
+  padding: 10px 28px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.settings-save-btn:hover:not(:disabled) { background: #1e4a8a; }
+.settings-save-btn:disabled { opacity: 0.5; cursor: default; }
+
+.settings-saved {
+  color: #4caf50;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
