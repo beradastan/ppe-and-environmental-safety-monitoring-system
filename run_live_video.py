@@ -231,6 +231,7 @@ IMGSZ        = 640
 TRACKER      = "bytetrack.yaml"   # proje kökündeki özel config (track_buffer=60)
 TEMPORAL_WIN      = 20   # artırıldı: daha kararlı oy (eski: 10)
 STATES_CLEANUP_EVERY = 300  # her N frame'de kayıp track temizliği
+PPE_INFER_EVERY   = 2    # PPE inference her N frame'de bir çalışır (1 = her frame)
 
 MIN_CROP_PX      = 40   # crop bu boyutun altındaysa model çağrılmaz (kenar kişi)
 MIN_TRACK_FRAMES     = 10    # bu kadar frame görülmemiş track'lar ghost — event'e dahil edilmez
@@ -789,6 +790,8 @@ def run(args):
                     print(f"  [CLEANUP] {len(stale)} kayip stable_pid temizlendi. Kalan: {len(states)}")
                 seen_stable_pids.clear()
 
+            _do_ppe = (frame_idx % PPE_INFER_EVERY == 0)
+
             # --- Person tracking ---
             p_result = person_model.track(
                 frame, classes=p_ids, tracker=TRACKER, persist=True,
@@ -832,17 +835,18 @@ def run(args):
                     x1, y1, x2, y2 = map(int, box.tolist())
                     person_coords[stable_pid] = (x1, y1, x2, y2)
 
-                    hcrop, hox, hoy = crop_ppe(frame, x1, y1, x2, y2, "helmet")
-                    if _crop_ok(hcrop) and not is_region_too_small(x1, y1, x2, y2, "helmet"):
-                        h_batch.append((stable_pid, track_id, hcrop, hox, hoy))
+                    if _do_ppe:
+                        hcrop, hox, hoy = crop_ppe(frame, x1, y1, x2, y2, "helmet")
+                        if _crop_ok(hcrop) and not is_region_too_small(x1, y1, x2, y2, "helmet"):
+                            h_batch.append((stable_pid, track_id, hcrop, hox, hoy))
 
-                    vcrop, vox, voy = crop_ppe(frame, x1, y1, x2, y2, "vest")
-                    if _crop_ok(vcrop):
-                        v_batch.append((stable_pid, track_id, vcrop, vox, voy))
+                        vcrop, vox, voy = crop_ppe(frame, x1, y1, x2, y2, "vest")
+                        if _crop_ok(vcrop):
+                            v_batch.append((stable_pid, track_id, vcrop, vox, voy))
 
-                    mcrop, mox, moy = crop_ppe(frame, x1, y1, x2, y2, "mask")
-                    if _crop_ok(mcrop) and not is_region_too_small(x1, y1, x2, y2, "mask"):
-                        m_batch.append((stable_pid, track_id, mcrop, mox, moy))
+                        mcrop, mox, moy = crop_ppe(frame, x1, y1, x2, y2, "mask")
+                        if _crop_ok(mcrop) and not is_region_too_small(x1, y1, x2, y2, "mask"):
+                            m_batch.append((stable_pid, track_id, mcrop, mox, moy))
 
                 # ── Faz 1b: batch inference ──────────────────────────────────────
                 if h_batch:
@@ -950,42 +954,45 @@ def run(args):
                     hlabel = hcand["label"] if hcand else "unknown"
                     hconf  = hcand["conf"]  if hcand else 0.0
                     hbbox  = hcand["bbox_f"] if hcand else None
-                    if TELEMETRY and hcand:
-                        _log_ppe_decision(PPEDecision(
-                            frame_idx=frame_idx, stable_pid=stable_pid, ppe_type="helmet",
-                            raw_label=hcand["raw_label"], conf=hcand["conf"],
-                            own_score=hcand["own_score"], neighbor_pen=hcand["neighbor_pen"],
-                            ambiguous=False, accepted=True, reason=hcand["reason"],
-                        ))
-                    states[stable_pid]["hardhat"].append(hlabel)
+                    if _do_ppe:
+                        if TELEMETRY and hcand:
+                            _log_ppe_decision(PPEDecision(
+                                frame_idx=frame_idx, stable_pid=stable_pid, ppe_type="helmet",
+                                raw_label=hcand["raw_label"], conf=hcand["conf"],
+                                own_score=hcand["own_score"], neighbor_pen=hcand["neighbor_pen"],
+                                ambiguous=False, accepted=True, reason=hcand["reason"],
+                            ))
+                        states[stable_pid]["hardhat"].append(hlabel)
                     hvote = vote(states[stable_pid]["hardhat"], min_known=3)
 
                     vcand = v_assigned.get(stable_pid)
                     vlabel = vcand["label"] if vcand else "unknown"
                     vconf  = vcand["conf"]  if vcand else 0.0
                     vbbox  = vcand["bbox_f"] if vcand else None
-                    if TELEMETRY and vcand:
-                        _log_ppe_decision(PPEDecision(
-                            frame_idx=frame_idx, stable_pid=stable_pid, ppe_type="vest",
-                            raw_label=vcand["raw_label"], conf=vcand["conf"],
-                            own_score=vcand["own_score"], neighbor_pen=vcand["neighbor_pen"],
-                            ambiguous=False, accepted=True, reason=vcand["reason"],
-                        ))
-                    states[stable_pid]["vest"].append(vlabel)
+                    if _do_ppe:
+                        if TELEMETRY and vcand:
+                            _log_ppe_decision(PPEDecision(
+                                frame_idx=frame_idx, stable_pid=stable_pid, ppe_type="vest",
+                                raw_label=vcand["raw_label"], conf=vcand["conf"],
+                                own_score=vcand["own_score"], neighbor_pen=vcand["neighbor_pen"],
+                                ambiguous=False, accepted=True, reason=vcand["reason"],
+                            ))
+                        states[stable_pid]["vest"].append(vlabel)
                     vvote = vote(states[stable_pid]["vest"], min_known=2)
 
                     mcand = m_assigned.get(stable_pid)
                     mlabel = mcand["label"] if mcand else "unknown"
                     mconf  = mcand["conf"]  if mcand else 0.0
                     mbbox  = mcand["bbox_f"] if mcand else None
-                    if TELEMETRY and mcand:
-                        _log_ppe_decision(PPEDecision(
-                            frame_idx=frame_idx, stable_pid=stable_pid, ppe_type="mask",
-                            raw_label=mcand["raw_label"], conf=mcand["conf"],
-                            own_score=mcand["own_score"], neighbor_pen=mcand["neighbor_pen"],
-                            ambiguous=False, accepted=True, reason=mcand["reason"],
-                        ))
-                    states[stable_pid]["mask"].append(mlabel)
+                    if _do_ppe:
+                        if TELEMETRY and mcand:
+                            _log_ppe_decision(PPEDecision(
+                                frame_idx=frame_idx, stable_pid=stable_pid, ppe_type="mask",
+                                raw_label=mcand["raw_label"], conf=mcand["conf"],
+                                own_score=mcand["own_score"], neighbor_pen=mcand["neighbor_pen"],
+                                ambiguous=False, accepted=True, reason=mcand["reason"],
+                            ))
+                        states[stable_pid]["mask"].append(mlabel)
                     mvote = vote(states[stable_pid]["mask"], min_known=1)
 
                     # Ghost track filtresi: yeterince görülmemiş track'ları atla
