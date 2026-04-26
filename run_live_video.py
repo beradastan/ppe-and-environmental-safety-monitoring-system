@@ -213,7 +213,7 @@ def _llm_report_async(payload: dict, json_path: Path, cfg: dict) -> None:
 # ---------------------------------------------------------------------------
 
 HELMET_MODEL_PATH = "models/bera/crophelmet_agent_final_best.pt"
-VEST_MODEL_PATH   = "models/hansung_yolov8_ppe.pt"
+VEST_MODEL_PATH   = "models/bera/vest_agent_final_best.pt"
 MASK_MODEL_PATH   = "models/bera/cropmask_agent_final_best.pt"
 FIRE_MODEL_PATH   = "models/bera/fire_smoke_other_agent_final_best.pt"
 PERSON_MODEL_PATH = "models/pretrained/person/person_yolov8s-seg.pt"
