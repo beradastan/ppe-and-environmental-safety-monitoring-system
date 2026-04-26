@@ -216,7 +216,7 @@ HELMET_MODEL_PATH = "models/bera/crophelmet_agent_final_best.pt"
 VEST_MODEL_PATH   = "models/bera/vest_agent_final_best.pt"
 MASK_MODEL_PATH   = "models/bera/cropmask_agent_final_best.pt"
 FIRE_MODEL_PATH   = "models/bera/fire_smoke_other_agent_final_best.pt"
-PERSON_MODEL_PATH = "models/pretrained/person/person_yolov8s-seg.pt"
+PERSON_MODEL_PATH = "models/person_agent_scene_vinayakstyle_best.pt"
 
 HELMET_PAD   = 0.80
 VEST_PAD     = 0.60
@@ -724,7 +724,8 @@ def run(args):
     fire_model   = YOLO(FIRE_MODEL_PATH)
     print("  person, helmet, vest, mask, fire modelleri hazir.")
 
-    p_ids = class_ids(person_model, ["person"])
+    _person_cls = next(n for n in person_model.names.values() if n.lower() == "person")
+    p_ids = class_ids(person_model, [_person_cls])
     h_ids = class_ids(helmet_model, HELMET_CLASSES)
     v_ids = class_ids(vest_model,   VEST_CLASSES)
     m_ids = class_ids(mask_model,   MASK_CLASSES)
@@ -812,27 +813,44 @@ def run(args):
                 stable_map = reattacher.update(all_persons_frame)
 
             if boxes is not None and boxes.id is not None:
-                # ── Faz 1: çıkarım + aday toplama ───────────────────────────────
+                # ── Faz 1: crop toplama ──────────────────────────────────────────
                 h_cands: list[dict] = []
                 v_cands: list[dict] = []
                 m_cands: list[dict] = []
                 person_coords: dict[int, tuple] = {}
 
+                # (stable_pid, track_id, crop, ox, oy)
+                h_batch: list[tuple] = []
+                v_batch: list[tuple] = []
+                m_batch: list[tuple] = []
+
                 for box, tid in zip(boxes.xyxy, boxes.id):
-                    track_id  = int(tid)
+                    track_id   = int(tid)
                     stable_pid = stable_map.get(track_id, track_id)
                     seen_stable_pids.add(stable_pid)
                     states[stable_pid]["frame_count"] += 1
                     x1, y1, x2, y2 = map(int, box.tolist())
                     person_coords[stable_pid] = (x1, y1, x2, y2)
 
-                    # Helmet
                     hcrop, hox, hoy = crop_ppe(frame, x1, y1, x2, y2, "helmet")
                     if _crop_ok(hcrop) and not is_region_too_small(x1, y1, x2, y2, "helmet"):
-                        hres = helmet_model.predict(
-                            hcrop, classes=h_ids, imgsz=IMGSZ,
-                            conf=HELMET_CONF, device=device, verbose=False,
-                        )[0]
+                        h_batch.append((stable_pid, track_id, hcrop, hox, hoy))
+
+                    vcrop, vox, voy = crop_ppe(frame, x1, y1, x2, y2, "vest")
+                    if _crop_ok(vcrop):
+                        v_batch.append((stable_pid, track_id, vcrop, vox, voy))
+
+                    mcrop, mox, moy = crop_ppe(frame, x1, y1, x2, y2, "mask")
+                    if _crop_ok(mcrop) and not is_region_too_small(x1, y1, x2, y2, "mask"):
+                        m_batch.append((stable_pid, track_id, mcrop, mox, moy))
+
+                # ── Faz 1b: batch inference ──────────────────────────────────────
+                if h_batch:
+                    h_results = helmet_model.predict(
+                        [b[2] for b in h_batch], classes=h_ids, imgsz=IMGSZ,
+                        conf=HELMET_CONF, device=device, verbose=False,
+                    )
+                    for (stable_pid, track_id, hcrop, hox, hoy), hres in zip(h_batch, h_results):
                         hdets = _collect_dets(helmet_model, hres, h_ids, HELMET_CONF)
                         if hdets:
                             best = max(hdets, key=lambda d: d["conf"])
@@ -845,11 +863,11 @@ def run(args):
                                 "conf": best["conf"], "own_score": h_own,
                                 "neighbor_pen": h_nb, "reason": h_reason,
                             })
-                        else:
+                        elif TELEMETRY:
                             h_nb_crop = neighbor_overlap_score(
                                 [hox, hoy, hox + hcrop.shape[1], hoy + hcrop.shape[0]],
                                 all_persons_frame, track_id)
-                            if TELEMETRY and h_nb_crop > 0.10:
+                            if h_nb_crop > 0.10:
                                 _log_ppe_decision(PPEDecision(
                                     frame_idx=frame_idx, stable_pid=stable_pid, ppe_type="helmet",
                                     raw_label="no_det", conf=0.0, own_score=0.0,
@@ -857,13 +875,12 @@ def run(args):
                                     accepted=False, reason="no_det",
                                 ))
 
-                    # Vest
-                    vcrop, vox, voy = crop_ppe(frame, x1, y1, x2, y2, "vest")
-                    if _crop_ok(vcrop):
-                        vres = vest_model.predict(
-                            vcrop, classes=v_ids, imgsz=IMGSZ,
-                            conf=VEST_CONF, device=device, verbose=False,
-                        )[0]
+                if v_batch:
+                    v_results = vest_model.predict(
+                        [b[2] for b in v_batch], classes=v_ids, imgsz=IMGSZ,
+                        conf=VEST_CONF, device=device, verbose=False,
+                    )
+                    for (stable_pid, track_id, vcrop, vox, voy), vres in zip(v_batch, v_results):
                         vdets = _collect_dets(vest_model, vres, v_ids, VEST_CONF)
                         if vdets:
                             best = max(vdets, key=lambda d: d["conf"])
@@ -876,11 +893,11 @@ def run(args):
                                 "conf": best["conf"], "own_score": v_own,
                                 "neighbor_pen": v_nb, "reason": v_reason,
                             })
-                        else:
+                        elif TELEMETRY:
                             v_nb_crop = neighbor_overlap_score(
                                 [vox, voy, vox + vcrop.shape[1], voy + vcrop.shape[0]],
                                 all_persons_frame, track_id)
-                            if TELEMETRY and v_nb_crop > 0.10:
+                            if v_nb_crop > 0.10:
                                 _log_ppe_decision(PPEDecision(
                                     frame_idx=frame_idx, stable_pid=stable_pid, ppe_type="vest",
                                     raw_label="no_det", conf=0.0, own_score=0.0,
@@ -888,13 +905,12 @@ def run(args):
                                     accepted=False, reason="no_det",
                                 ))
 
-                    # Mask
-                    mcrop, mox, moy = crop_ppe(frame, x1, y1, x2, y2, "mask")
-                    if _crop_ok(mcrop) and not is_region_too_small(x1, y1, x2, y2, "mask"):
-                        mres = mask_model.predict(
-                            mcrop, classes=m_ids, imgsz=MASK_IMGSZ,
-                            conf=MASK_CONF, device=device, verbose=False,
-                        )[0]
+                if m_batch:
+                    m_results = mask_model.predict(
+                        [b[2] for b in m_batch], classes=m_ids, imgsz=MASK_IMGSZ,
+                        conf=MASK_CONF, device=device, verbose=False,
+                    )
+                    for (stable_pid, track_id, mcrop, mox, moy), mres in zip(m_batch, m_results):
                         mdets = _collect_dets(mask_model, mres, m_ids, MASK_CONF)
                         if mdets:
                             best = max(mdets, key=lambda d: d["conf"])
@@ -907,11 +923,11 @@ def run(args):
                                 "conf": best["conf"], "own_score": m_own,
                                 "neighbor_pen": m_nb, "reason": m_reason,
                             })
-                        else:
+                        elif TELEMETRY:
                             m_nb_crop = neighbor_overlap_score(
                                 [mox, moy, mox + mcrop.shape[1], moy + mcrop.shape[0]],
                                 all_persons_frame, track_id)
-                            if TELEMETRY and m_nb_crop > 0.10:
+                            if m_nb_crop > 0.10:
                                 _log_ppe_decision(PPEDecision(
                                     frame_idx=frame_idx, stable_pid=stable_pid, ppe_type="mask",
                                     raw_label="no_det", conf=0.0, own_score=0.0,
