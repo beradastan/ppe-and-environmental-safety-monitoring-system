@@ -76,6 +76,8 @@ def _load_llm_cfg() -> dict:
         return {}
 
 
+_llm_threads: list[threading.Thread] = []  # pipeline bitince join için
+
 _LLM_SYSTEM = (
     "You are a factory safety AI. Write exactly 1 line in Turkish using ONLY the given data. "
     "Do NOT mention time, seconds, risk, danger, recommendations, or what people ARE wearing. "
@@ -675,6 +677,13 @@ def save_event(
 
     alarm_text = _build_alarm_text(event_type, persons_detail)
 
+    enriched_sig = {
+        **base_sig,
+        "helmet_missing_ids": [p["track_id"] for p in persons_detail if "no_helmet" in p.get("violations", [])],
+        "vest_missing_ids":   [p["track_id"] for p in persons_detail if "no_vest"   in p.get("violations", [])],
+        "mask_missing_ids":   [p["track_id"] for p in persons_detail if "no_mask"   in p.get("violations", [])],
+    }
+
     payload = {
         "event_id":      event_id,
         "event_type":    event_type,
@@ -684,7 +693,7 @@ def save_event(
         "change_reason": event_info.get("change_reason", ""),
         "persons":       persons_detail,
         "scene":         scene,
-        "signature":     base_sig,
+        "signature":     enriched_sig,
         "alarm_text":    alarm_text,
         "llm_report":    None,
     }
@@ -699,9 +708,10 @@ def save_event(
         t = threading.Thread(
             target=_llm_report_async,
             args=(payload, json_path, llm_cfg),
-            daemon=True,
+            daemon=False,
         )
         t.start()
+        _llm_threads.append(t)
 
     try:
         import winsound
@@ -1093,6 +1103,12 @@ def run(args):
             cv2.destroyAllWindows()
         print(f"\nToplam frame: {frame_idx} | Kaydedilen event: {event_count}")
         print(f"Sonuclar: results/")
+        pending = [t for t in _llm_threads if t.is_alive()]
+        if pending:
+            print(f"  LLM thread'leri bekleniyor ({len(pending)} adet)...")
+            for t in pending:
+                t.join(timeout=180)
+        _llm_threads.clear()
 
 
 # ---------------------------------------------------------------------------

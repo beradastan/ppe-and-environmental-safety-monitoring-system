@@ -28,7 +28,7 @@ _db_write_event = None
 # Deduplication: Windows'ta on_created aynı dosya için birden fazla tetiklenebilir
 _seen_lock  = threading.Lock()
 _seen_paths: dict[str, float] = {}   # path_str → son işlenme zamanı
-_DEDUP_TTL  = 2.0  # saniye
+_DEDUP_TTL  = 10.0  # saniye — Windows NTFS bazen aynı dosyayı geç tetikler
 
 
 def _load_db_writer() -> None:
