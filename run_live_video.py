@@ -31,9 +31,9 @@ from pathlib import Path
 
 try:
     import torch
-    _DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+    _TORCH_CUDA = torch.cuda.is_available()
 except ImportError:
-    _DEVICE = "cpu"
+    _TORCH_CUDA = False
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -214,11 +214,22 @@ def _llm_report_async(payload: dict, json_path: Path, cfg: dict) -> None:
 # Sabitler
 # ---------------------------------------------------------------------------
 
-HELMET_MODEL_PATH = "models/bera/crophelmet_agent_final_best.pt"
-VEST_MODEL_PATH   = "models/bera/vest_agent_final_best.pt"
-MASK_MODEL_PATH   = "models/bera/cropmask_agent_final_best.pt"
-FIRE_MODEL_PATH   = "models/bera/fire_smoke_other_agent_final_best.pt"
-PERSON_MODEL_PATH = "models/person_agent_scene_vinayakstyle_best.pt"
+def _load_model_cfg() -> dict:
+    try:
+        with open("config.yaml", encoding="utf-8") as f:
+            return (yaml.safe_load(f) or {}).get("models", {})
+    except Exception:
+        return {}
+
+_MODEL_CFG = _load_model_cfg()
+_DEV_CFG = _MODEL_CFG.get("device", "auto")
+_DEVICE  = ("cuda" if _TORCH_CUDA else "cpu") if _DEV_CFG == "auto" else _DEV_CFG
+
+HELMET_MODEL_PATH = _MODEL_CFG.get("helmet_model", "models/bera/crophelmet_agent_final_best.pt")
+VEST_MODEL_PATH   = _MODEL_CFG.get("vest_model",   "models/bera/vest_agent_final_best.pt")
+MASK_MODEL_PATH   = _MODEL_CFG.get("mask_model",   "models/bera/cropmask_agent_final_best.pt")
+FIRE_MODEL_PATH   = _MODEL_CFG.get("fire_model",   "models/bera/fire_smoke_other_agent_final_best.pt")
+PERSON_MODEL_PATH = _MODEL_CFG.get("person_model", "models/person_agent_scene_vinayakstyle_best.pt")
 
 HELMET_PAD   = 0.80
 VEST_PAD     = 0.60

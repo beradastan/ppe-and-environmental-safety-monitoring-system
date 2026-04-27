@@ -1,6 +1,9 @@
 backend:
   cors_origins:
   - http://localhost:5173
+  - http://localhost:5174
+  - http://127.0.0.1:5173
+  - http://127.0.0.1:5174
   host: 0.0.0.0
   port: 5050
 database:
@@ -28,10 +31,12 @@ llm:
   temperature: 0.1
   timeout: 120
 models:
-  device: cpu
-  fire_model: models/fire_best.pt
-  person_model: yolo11n.pt
-  ppe_model: models/hansung_ppe.pt
+  device: auto
+  person_model: models/person_agent_scene_vinayakstyle_best.pt
+  helmet_model: models/bera/crophelmet_agent_final_best.pt
+  vest_model: models/bera/vest_agent_final_best.pt
+  mask_model: models/bera/cropmask_agent_final_best.pt
+  fire_model: models/bera/fire_smoke_other_agent_final_best.pt
 ppe_pipeline:
   fire_conf: 0.5
   helmet_conf: 0.2
