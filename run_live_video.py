@@ -813,7 +813,7 @@ def run(args):
             )[0]
 
             persons_with_ppe: list[dict] = []
-            draw_frame = frame.copy() if display else frame
+            draw_frame = frame.copy()  # her zaman copy: bbox çizimi için
             fh, fw = frame.shape[:2]
 
             boxes = p_result.boxes
@@ -1011,8 +1011,7 @@ def run(args):
 
                     # Ghost track filtresi: yeterince görülmemiş track'ları atla
                     if states[stable_pid]["frame_count"] < MIN_TRACK_FRAMES:
-                        if display:
-                            draw_box(draw_frame, x1, y1, x2, y2, "...", COLOR_UNKNOWN)
+                        draw_box(draw_frame, x1, y1, x2, y2, "...", COLOR_UNKNOWN)
                         continue
 
                     color, viols = compliance_color(hvote, vvote, mvote)
@@ -1027,21 +1026,20 @@ def run(args):
                         "mask_conf":     round(mconf, 2),
                     })
 
-                    if display:
-                        draw_box(draw_frame, x1, y1, x2, y2, f"ID{stable_pid}", color)
-                        ppe_items = [
-                            (hbbox, hvote, hconf, "H",
-                             COLOR_OK if hvote == "Hardhat" else COLOR_DANGER if hvote == "NO-Hardhat" else COLOR_UNKNOWN),
-                            (vbbox, vvote, vconf, "V",
-                             COLOR_OK if vvote == "Safety Vest" else COLOR_DANGER if vvote == "NO-Safety Vest" else COLOR_UNKNOWN),
-                            (mbbox, mvote, mconf, "M",
-                             COLOR_OK if mvote == "Mask" else COLOR_WARN if mvote == "NO-Mask" else COLOR_UNKNOWN),
-                        ]
-                        for bbox, vote_label, conf, tag, c in ppe_items:
-                            if bbox is None or vote_label == "unknown":
-                                continue
-                            draw_ppe_box(draw_frame, bbox[0], bbox[1], bbox[2], bbox[3],
-                                         f"{vote_label[:8]}({conf:.2f})", c, tag)
+                    draw_box(draw_frame, x1, y1, x2, y2, f"ID{stable_pid}", color)
+                    ppe_items = [
+                        (hbbox, hvote, hconf, "H",
+                         COLOR_OK if hvote == "Hardhat" else COLOR_DANGER if hvote == "NO-Hardhat" else COLOR_UNKNOWN),
+                        (vbbox, vvote, vconf, "V",
+                         COLOR_OK if vvote == "Safety Vest" else COLOR_DANGER if vvote == "NO-Safety Vest" else COLOR_UNKNOWN),
+                        (mbbox, mvote, mconf, "M",
+                         COLOR_OK if mvote == "Mask" else COLOR_WARN if mvote == "NO-Mask" else COLOR_UNKNOWN),
+                    ]
+                    for bbox, vote_label, conf, tag, c in ppe_items:
+                        if bbox is None or vote_label == "unknown":
+                            continue
+                        draw_ppe_box(draw_frame, bbox[0], bbox[1], bbox[2], bbox[3],
+                                     f"{vote_label[:8]}({conf:.2f})", c, tag)
 
             # --- Fire / smoke detection ---
             fire_res = fire_model.predict(
