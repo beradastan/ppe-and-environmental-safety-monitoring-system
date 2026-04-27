@@ -733,11 +733,15 @@ def run(args):
 
     from event_manager import PersonEventManager
     from tracking_identity import TrackReattacher
+    _ppe_cfg = (yaml.safe_load(open("config.yaml", encoding="utf-8")) or {}).get("ppe_pipeline", {})
     event_manager = PersonEventManager(
         new_confirm_sec=3.0,
         resolved_confirm_sec=5.0,
-        fire_confirm_frames=20,   # artırıldı: false positive bastırma (eski: 2)
+        fire_confirm_frames=20,
         fire_clear_frames=10,
+        check_helmet=_ppe_cfg.get("use_helmet", True),
+        check_vest=_ppe_cfg.get("use_vest", True),
+        check_mask=_ppe_cfg.get("use_mask", False),
     )
     reattacher = TrackReattacher()
 
