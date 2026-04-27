@@ -19,10 +19,9 @@ detection:
   person_confidence: 0.4
   ppe_confidence: 0.35
 event_manager:
-  fire_clear_frames: 2
-  fire_confirm_frames: 2
-  new_confirm_frames: 2
-  person_grace_sec: 2.0
+  fire_clear_frames: 10
+  fire_confirm_frames: 20
+  new_confirm_sec: 3.0
   resolved_confirm_sec: 5.0
 llm:
   base_url: http://localhost:11434
@@ -37,6 +36,7 @@ models:
   vest_model: models/bera/vest_agent_final_best.pt
   mask_model: models/bera/cropmask_agent_final_best.pt
   fire_model: models/bera/fire_smoke_other_agent_final_best.pt
+  mask_imgsz: 1280
 ppe_pipeline:
   fire_conf: 0.5
   helmet_conf: 0.2
@@ -51,3 +51,4 @@ ppe_pipeline:
   use_vest: true
   vest_conf: 0.3
 results_dir: results
+results_keep_events: 50

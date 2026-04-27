@@ -17,28 +17,28 @@ export default function SignatureSummary({ signature }) {
     fire_detected
 
   if (!hasViolation) {
-    return <div className="sig-clear">✓ Tüm personel PPE uyumlu</div>
+    return <div className="sig-clear">Tüm personel PPE uyumlu</div>
   }
 
   return (
     <div className="sig-row">
       {helmet_missing_ids.length > 0 && (
         <span className="sig-tag sig-tag--helmet">
-          ⛑ Baretsiz: {helmet_missing_ids.map(id => `#${id}`).join(', ')}
+          Baretsiz: {helmet_missing_ids.map(id => `#${id}`).join(', ')}
         </span>
       )}
       {vest_missing_ids.length > 0 && (
         <span className="sig-tag sig-tag--vest">
-          🦺 Yeleksiz: {vest_missing_ids.map(id => `#${id}`).join(', ')}
+          Yeleksiz: {vest_missing_ids.map(id => `#${id}`).join(', ')}
         </span>
       )}
       {mask_missing_ids.length > 0 && (
         <span className="sig-tag sig-tag--mask">
-          😷 Maskesiz: {mask_missing_ids.map(id => `#${id}`).join(', ')}
+          Maskesiz: {mask_missing_ids.map(id => `#${id}`).join(', ')}
         </span>
       )}
       {fire_detected && (
-        <span className="sig-tag sig-tag--fire">🔥 YANGIN TESPİT EDİLDİ</span>
+        <span className="sig-tag sig-tag--fire">YANGIN TESPİT EDİLDİ</span>
       )}
     </div>
   )

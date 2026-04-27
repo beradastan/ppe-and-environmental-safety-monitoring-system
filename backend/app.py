@@ -267,6 +267,17 @@ def api_patch_llm(event_id: str):
     return jsonify({"ok": True})
 
 
+@app.route("/api/events/<event_id>/resolve", methods=["PATCH"])
+def api_resolve_event(event_id: str):
+    if not _EVENT_ID_RE.match(event_id):
+        abort(400, "Geçersiz event_id.")
+    if _USE_DB:
+        from backend.database.writer import resolve_event
+        resolve_event(event_id)
+    socketio.emit("event_resolved", {"event_id": event_id})
+    return jsonify({"ok": True})
+
+
 @app.route("/api/config", methods=["GET"])
 def api_get_config():
     cfg      = _load_config()

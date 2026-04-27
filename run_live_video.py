@@ -79,49 +79,67 @@ def _load_llm_cfg() -> dict:
 _llm_threads: list[threading.Thread] = []  # pipeline bitince join için
 
 _LLM_SYSTEM = (
-    "You are a factory safety AI. Write exactly 1 line in Turkish using ONLY the given data. "
-    "Do NOT mention time, seconds, risk, danger, recommendations, or what people ARE wearing. "
-    "Copy the Output pattern from the matching example below.\n\n"
+    "You are a factory safety AI. Write exactly 1 sentence in Turkish using ONLY the given data.\n"
+    "Rules:\n"
+    "- 'hicbir KKD yok' → use phrase 'hiçbir KKD takmıyor'.\n"
+    "- Include total person context if provided (e.g. '5 kişiden 2'si uyumsuz').\n"
+    "- If repeat_count > 1, start with 'Bu bölgede Nth kez alarm;'.\n"
+    "- Do NOT mention confidence, trust, or verification. No greetings, no extra sentences.\n\n"
+    "Input: Olay tipi: KKD ihlali\nSahada: 3 kisi (1 ihlal)\nKisi #2: baret=YOK\n"
+    "Output: Kişi #2 baret takmıyor; sahada 3 kişiden 1'i uyumsuz.\n\n"
+    "Input: Olay tipi: KKD ihlali\nSahada: 2 kisi (1 ihlal)\nKisi #9: yelek=YOK\n"
+    "Output: Kişi #9 yelek takmıyor.\n\n"
+    "Input: Olay tipi: KKD ihlali (2 kisi)\nSahada: 5 kisi (2 ihlal)\nKisi #1: baret=YOK, yelek=YOK\nKisi #3: yelek=YOK\n"
+    "Output: Kişi #1 baret ve yelek takmıyor, kişi #3 yelek takmıyor; 5 kişiden 2'si uyumsuz.\n\n"
+    "Input: Olay tipi: KKD ihlali\nSahada: 4 kisi (1 ihlal)\nKisi #5: hicbir KKD yok\n"
+    "Output: Kişi #5 hiçbir KKD takmıyor; sahada 4 kişiden 1'i tamamen uyumsuz.\n\n"
+    "Input: Olay tipi: KKD ihlali (2 kisi) — 3. tekrar\nSahada: 4 kisi (2 ihlal)\nKisi #1: hicbir KKD yok\nKisi #4: yelek=YOK\n"
+    "Output: Bu bölgede 3. kez alarm; kişi #1 hiçbir KKD takmıyor, kişi #4 yelek takmıyor.\n\n"
     "Input: Olay tipi: Yangin/duman\nSahne: yangin tespit edildi\n"
     "Output: Sahada yangın tespit edildi.\n\n"
     "Input: Olay tipi: Yangin/duman\nSahne: duman tespit edildi\n"
     "Output: Sahada duman tespit edildi.\n\n"
-    "Input: Olay tipi: KKD ihlali\nKisi #2: baret=YOK\n"
-    "Output: Kişi #2 baret takmıyor.\n\n"
-    "Input: Olay tipi: KKD ihlali\nKisi #9: yelek=YOK\n"
-    "Output: Kişi #9 yelek takmıyor.\n\n"
-    "Input: Olay tipi: KKD ihlali\nKisi #5: baret=YOK, yelek=YOK, maske=YOK\n"
-    "Output: Kişi #5 baret, yelek ve maske takmıyor.\n\n"
-    "Input: Olay tipi: KKD ihlali (2 kisi)\nKisi #1: baret=YOK, yelek=YOK\nKisi #3: yelek=YOK\n"
-    "Output: 2 kişi ihlal yapıyor; kişi #1 baret ve yelek takmıyor, kişi #3 yelek takmıyor.\n\n"
-    "Input: Olay tipi: KKD ihlali (3 kisi)\nKisi #1: baret=YOK, yelek=YOK\nKisi #4: yelek=YOK\nKisi #6: baret=YOK\n"
-    "Output: 3 kişi ihlal yapıyor; kişi #1 baret ve yelek takmıyor, kişi #4 yelek takmıyor, kişi #6 baret takmıyor.\n\n"
-    "Input: Olay tipi: Coklu tehlike\nSahne: yangin tespit edildi\nKisi #4: baret=YOK\n"
-    "Output: Sahada yangın tespit edildi; kişi #4 baret takmıyor.\n\n"
-    "Input: Olay tipi: Coklu tehlike\nSahne: duman tespit edildi\nKisi #3: yelek=YOK\n"
-    "Output: Sahada duman tespit edildi; kişi #3 yelek takmıyor.\n\n"
-    "Input: Olay tipi: Coklu tehlike (2 kisi)\nSahne: duman tespit edildi\nKisi #2: yelek=YOK\nKisi #4: baret=YOK\n"
-    "Output: Sahada duman tespit edildi; 2 kişi ihlal yapıyor; kişi #2 yelek takmıyor, kişi #4 baret takmıyor.\n\n"
+    "Input: Olay tipi: Coklu tehlike (2 kisi)\nSahne: yangin tespit edildi\nSahada: 4 kisi (2 ihlal)\nKisi #2: yelek=YOK\nKisi #4: baret=YOK\n"
+    "Output: Sahada yangın tespit edildi; kişi #2 yelek, kişi #4 baret takmıyor.\n\n"
+    "Input: Olay tipi: Coklu tehlike (1 kisi) — 2. tekrar\nSahne: duman tespit edildi\nSahada: 6 kisi (1 ihlal)\nKisi #3: hicbir KKD yok\n"
+    "Output: Bu bölgede 2. kez alarm; sahada duman var ve kişi #3 hiçbir KKD takmıyor.\n\n"
     "Now write only the Output line for the given input. Nothing else."
 )
 
 
+_VIO = [
+    ("no_helmet", "baret"),
+    ("no_vest",   "yelek"),
+    ("no_mask",   "maske"),
+]
+
+
 def _build_llm_prompt(payload: dict) -> str:
-    event_type = payload.get("event_type", "ppe_violation")
-    persons    = payload.get("persons", [])
-    scene      = payload.get("scene", {})
+    event_type    = payload.get("event_type", "ppe_violation")
+    persons       = payload.get("persons", [])
+    scene         = payload.get("scene", {})
+    repeat_count  = int(payload.get("repeat_count", 1))
+    total_persons = int(payload.get("total_persons", len(persons)))
 
     person_lines = []
     for p in persons:
-        tid   = p["track_id"]
-        parts = []
-        for field, label in [("helmet_status", "baret"), ("vest_status", "yelek"), ("mask_status", "maske")]:
-            if p.get(field) == "violation":
-                parts.append(f"{label}=YOK")
-        if parts:
-            person_lines.append(f"Kisi #{tid}: {', '.join(parts)}")
+        tid        = p["track_id"]
+        violations = p.get("violations", [])
+        if not violations:
+            continue
+        active = [v for v, _ in _VIO if v in violations]
+        if len(active) >= 2:
+            person_lines.append(f"Kisi #{tid}: hicbir KKD yok")
+        else:
+            parts = [label for v, label in _VIO if v in violations]
+            person_lines.append(f"Kisi #{tid}: {', '.join(p + '=YOK' for p in parts)}")
 
-    violator_count = sum(1 for line in person_lines if "YOK" in line)
+    violator_count = len(person_lines)
+    repeat_suffix  = f" — {repeat_count}. tekrar" if repeat_count > 1 else ""
+    persons_ctx    = (
+        f"Sahada: {total_persons} kisi ({violator_count} ihlal)\n"
+        if total_persons > 0 and violator_count > 0 else ""
+    )
 
     scene_parts = []
     if scene.get("fire_detected"):
@@ -133,20 +151,21 @@ def _build_llm_prompt(payload: dict) -> str:
     if event_type == "fire_detected":
         type_tr = "Yangin/duman"
     elif event_type == "ppe_violation":
-        type_tr = f"KKD ihlali ({violator_count} kisi)" if violator_count > 0 else "KKD ihlali"
-    else:  # multi_hazard — always include count so model echoes it
-        type_tr = f"Coklu tehlike ({violator_count} kisi)"
+        type_tr = f"KKD ihlali ({violator_count} kisi)" if violator_count > 1 else "KKD ihlali"
+    else:
+        type_tr = f"Coklu tehlike ({violator_count} kisi)" if violator_count > 1 else "Coklu tehlike"
 
     persons_section = "\n".join(person_lines) + "\n" if person_lines else ""
     return (
-        f"Input: Olay tipi: {type_tr}\n"
+        f"Input: Olay tipi: {type_tr}{repeat_suffix}\n"
         f"{scene_str}"
+        f"{persons_ctx}"
         f"{persons_section}"
         "Output:"
     )
 
 
-def _call_ollama(prompt: str, cfg: dict, system=None):
+def _call_ollama(prompt: str, cfg: dict, system=None, _retries: int = 2):
     body = {
         "model":       cfg.get("model", "mistral"),
         "prompt":      prompt,
@@ -155,29 +174,96 @@ def _call_ollama(prompt: str, cfg: dict, system=None):
     }
     if system:
         body["system"] = system
-    try:
-        resp = requests.post(
-            f"{cfg.get('base_url', 'http://localhost:11434')}/api/generate",
-            json=body,
-            timeout=cfg.get("timeout", 120),
-        )
-        if resp.status_code == 200:
-            raw = resp.json().get("response", "").strip()
-            raw = raw.removeprefix("Output:").strip(" \"'\n")
-            first_line = raw.split("\n")[0].strip().strip("\"'")
-            if first_line.endswith("."):
-                return first_line
-            if "." in first_line:
-                return first_line[:first_line.rindex(".") + 1]
-            return first_line or None
-    except Exception as e:
-        print(f"  [LLM] Hata: {e}")
+    url = f"{cfg.get('base_url', 'http://localhost:11434')}/api/generate"
+    timeout = cfg.get("timeout", 120)
+
+    for attempt in range(1, _retries + 2):
+        try:
+            resp = requests.post(url, json=body, timeout=timeout)
+            if resp.status_code == 200:
+                raw = resp.json().get("response", "").strip()
+                raw = raw.removeprefix("Output:").strip(" \"'\n")
+                first_line = raw.split("\n")[0].strip().strip("\"'")
+                if first_line.endswith("."):
+                    return first_line
+                if "." in first_line:
+                    return first_line[:first_line.rindex(".") + 1]
+                if first_line:
+                    return first_line
+                # Boş yanıt — retry
+                print(f"  [LLM] Bos yanit (deneme {attempt}), yenileniyor...")
+        except Exception as e:
+            print(f"  [LLM] Hata (deneme {attempt}): {e}")
+        if attempt <= _retries:
+            time.sleep(2)
     return None
 
 
+def _patch_llm_report(event_id: str, report: str) -> None:
+    """Backend PATCH /api/events/<id>/llm — JSON güncelleme ayrılmış yardımcı."""
+    try:
+        with open("config.yaml", encoding="utf-8") as f:
+            _b = (yaml.safe_load(f) or {}).get("backend", {})
+        backend_url = f"http://localhost:{_b.get('port', 5050)}"
+    except Exception:
+        backend_url = "http://localhost:5050"
+    try:
+        requests.patch(
+            f"{backend_url}/api/events/{event_id}/llm",
+            json={"llm_report": report},
+            timeout=5,
+        )
+        print(f"  [LLM] Backend bildirildi: {event_id}")
+    except Exception as e:
+        print(f"  [LLM] Backend bildirim hatasi: {e}")
+
+
+_KW_MAP = {"no_helmet": "baret", "no_vest": "yelek", "no_mask": "maske"}
+
+
+def _validate_llm_report(report: str, payload: dict) -> bool:
+    """
+    LLM çıktısının gerçek ihlal verileriyle tutarlı olup olmadığını kontrol eder.
+    Kişi başına yalnızca var olan PPE ihlalleri geçerlidir; fazladan keyword → False.
+    """
+    import re
+    persons = payload.get("persons", [])
+    valid: dict[int, set[str]] = {
+        p["track_id"]: {_KW_MAP[v] for v in p.get("violations", []) if v in _KW_MAP}
+        for p in persons
+    }
+    # Raporu #N sınırlarında böl, her kişi scope'unda izin verilmeyen keyword ara
+    tokens = re.split(r"(#\d+)", report)
+    current_tid: int | None = None
+    for token in tokens:
+        m = re.fullmatch(r"#(\d+)", token)
+        if m:
+            current_tid = int(m.group(1))
+            if current_tid not in valid:
+                return False  # payload'da olmayan kişi ID'si
+        elif current_tid is not None:
+            for kw in ("baret", "yelek", "maske"):
+                if kw in token and kw not in valid[current_tid]:
+                    return False  # bu kişi için bu ihlal yok
+    return True
+
+
 def _llm_report_async(payload: dict, json_path: Path, cfg: dict) -> None:
+    event_id        = payload.get("event_id", "")
+    fallback_report = payload.get("alarm_text", "")
+
     prompt = _build_llm_prompt(payload)
     report = _call_ollama(prompt, cfg, system=_LLM_SYSTEM)
+
+    # Validation: LLM yanlış ihlal yazdıysa fallback kullan
+    if report and not _validate_llm_report(report, payload):
+        print(f"  [LLM] Dogrulama hatasi — fallback kullaniliyor. ({report})")
+        report = None
+
+    # LLM başarısız → alarm_text fallback kullan
+    if not report:
+        print(f"  [LLM] Yanit alinamadi — fallback kullaniliyor.")
+        report = fallback_report
 
     if report:
         try:
@@ -189,26 +275,23 @@ def _llm_report_async(payload: dict, json_path: Path, cfg: dict) -> None:
             print(f"  [LLM] Rapor yazildi: {json_path.name} — {report}")
         except Exception as e:
             print(f"  [LLM] JSON yazma hatasi: {e}")
+        _patch_llm_report(event_id, report)
 
-        try:
-            try:
-                with open("config.yaml", encoding="utf-8") as f:
-                    _full_cfg = yaml.safe_load(f) or {}
-                _b = _full_cfg.get("backend", {})
-                backend_url = f"http://localhost:{_b.get('port', 5050)}"
-            except Exception:
-                backend_url = "http://localhost:5050"
-            event_id = payload.get("event_id", "")
-            requests.patch(
-                f"{backend_url}/api/events/{event_id}/llm",
-                json={"llm_report": report},
-                timeout=5,
-            )
-            print(f"  [LLM] Backend bildirildi: {event_id}")
-        except Exception as e:
-            print(f"  [LLM] Backend bildirim hatasi: {e}")
-    else:
-        print("  [LLM] Yanit alinamadi.")
+
+def _resolve_event(event_id: str) -> None:
+    """Backend'e PATCH /api/events/<id>/resolve çağrısı yapar (thread-safe)."""
+    try:
+        with open("config.yaml", encoding="utf-8") as f:
+            _b = (yaml.safe_load(f) or {}).get("backend", {})
+        backend_url = f"http://localhost:{_b.get('port', 5050)}"
+    except Exception:
+        backend_url = "http://localhost:5050"
+    try:
+        requests.patch(f"{backend_url}/api/events/{event_id}/resolve", timeout=5)
+        print(f"  [RESOLVE] {event_id} resolve edildi.")
+    except Exception as e:
+        print(f"  [RESOLVE] Hata: {e}")
+
 
 # ---------------------------------------------------------------------------
 # Sabitler
@@ -237,7 +320,7 @@ MASK_PAD     = 0.80
 HELMET_CONF  = 0.15
 VEST_CONF    = 0.30
 MASK_CONF    = 0.10
-MASK_IMGSZ   = 1280  # maske için yüksek çözünürlük: küçük yüz bölgelerinde recall artışı
+MASK_IMGSZ   = int(_MODEL_CFG.get("mask_imgsz", 1280))  # config.yaml models.mask_imgsz
 FIRE_CONF    = 0.75  # yükseltildi: kum/yelek false positive bastırma (eski: 0.50)
 PERSON_CONF  = 0.25
 IMGSZ        = 640
@@ -701,6 +784,8 @@ def save_event(
         "event_status":  event_status,
         "timestamp":     datetime.now().isoformat(),
         "duration_sec":  event_info.get("duration_sec", 0.0),
+        "repeat_count":  event_info.get("repeat_count", 1),
+        "total_persons": len(persons_detail),
         "change_reason": event_info.get("change_reason", ""),
         "persons":       persons_detail,
         "scene":         scene,
@@ -732,6 +817,28 @@ def save_event(
 
 
 # ---------------------------------------------------------------------------
+# Sonuçlar temizliği
+# ---------------------------------------------------------------------------
+
+def _cleanup_old_results(results_dir: Path, keep: int) -> None:
+    """results/ altındaki eski event klasörlerini siler; son `keep` tanesini korur."""
+    if keep <= 0:
+        return
+    dirs = sorted(
+        [d for d in results_dir.iterdir() if d.is_dir() and d.name.startswith("evt_")],
+        key=lambda d: d.name,
+    )
+    to_delete = dirs[:-keep] if len(dirs) > keep else []
+    for d in to_delete:
+        try:
+            import shutil
+            shutil.rmtree(d)
+            print(f"  [TEMIZLIK] Silindi: {d.name}")
+        except Exception as e:
+            print(f"  [TEMIZLIK] Hata ({d.name}): {e}")
+
+
+# ---------------------------------------------------------------------------
 # Ana döngü
 # ---------------------------------------------------------------------------
 
@@ -754,12 +861,14 @@ def run(args):
 
     from event_manager import PersonEventManager
     from tracking_identity import TrackReattacher
-    _ppe_cfg = (yaml.safe_load(open("config.yaml", encoding="utf-8")) or {}).get("ppe_pipeline", {})
+    _full_cfg  = yaml.safe_load(open("config.yaml", encoding="utf-8")) or {}
+    _ppe_cfg   = _full_cfg.get("ppe_pipeline", {})
+    _em_cfg    = _full_cfg.get("event_manager", {})
     event_manager = PersonEventManager(
-        new_confirm_sec=3.0,
-        resolved_confirm_sec=5.0,
-        fire_confirm_frames=20,
-        fire_clear_frames=10,
+        new_confirm_sec      = float(_em_cfg.get("new_confirm_sec",      3.0)),
+        resolved_confirm_sec = float(_em_cfg.get("resolved_confirm_sec", 5.0)),
+        fire_confirm_frames  = int(  _em_cfg.get("fire_confirm_frames",  20)),
+        fire_clear_frames    = int(  _em_cfg.get("fire_clear_frames",    10)),
         check_helmet=_ppe_cfg.get("use_helmet", True),
         check_vest=_ppe_cfg.get("use_vest", True),
         check_mask=_ppe_cfg.get("use_mask", False),
@@ -775,6 +884,14 @@ def run(args):
 
     results_dir = Path("results")
     results_dir.mkdir(exist_ok=True)
+
+    # Eski event klasörlerini temizle
+    try:
+        _cfg_full = yaml.safe_load(open("config.yaml", encoding="utf-8")) or {}
+        _keep = int(_cfg_full.get("results_keep_events", 50))
+    except Exception:
+        _keep = 50
+    _cleanup_old_results(results_dir, _keep)
 
     # Mevcut event sayısından devam et — yeniden başlatmada üzerine yazma
     existing = [d for d in results_dir.iterdir() if d.is_dir() and d.name.startswith("evt_")]
@@ -1072,7 +1189,7 @@ def run(args):
                         smoke_raw = True
                         smoke_conf_max = max(smoke_conf_max, conf)
                     # "other" → yok sayılır
-            if (fire_raw or smoke_raw) and display:
+            if fire_raw or smoke_raw:
                 label = "FIRE" if fire_raw else "SMOKE"
                 cv2.putText(draw_frame, f"{label} DETECTED!", (10, 90),
                             cv2.FONT_HERSHEY_SIMPLEX, 1.0, COLOR_FIRE, 3)
@@ -1088,6 +1205,14 @@ def run(args):
                     smoke_detected=smoke_raw,
                     smoke_conf=smoke_conf_max,
                 )
+
+            # Doğal ihlal bitişi: resolved geçişini DB'ye bildir (tek seferlik)
+            if event_info["event_status"] == "resolved" and event_info.get("event_id"):
+                threading.Thread(
+                    target=_resolve_event,
+                    args=(event_info["event_id"],),
+                    daemon=True,
+                ).start()
 
             if display:
                 draw_hud(
@@ -1118,6 +1243,9 @@ def run(args):
             for t in pending:
                 t.join(timeout=180)
         _llm_threads.clear()
+        # Video sonu: aktif event varsa resolve et
+        if event_manager._active is not None:
+            _resolve_event(event_manager._active.event_id)
 
 
 # ---------------------------------------------------------------------------

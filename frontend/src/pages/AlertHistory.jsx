@@ -6,10 +6,10 @@ import './AlertHistory.css'
 
 const VIOLATION_TYPES = [
   { value: '',       label: 'Tüm ihlaller' },
-  { value: 'helmet', label: '⛑ Baret'      },
-  { value: 'vest',   label: '🦺 Yelek'      },
-  { value: 'mask',   label: '😷 Maske'      },
-  { value: 'fire',   label: '🔥 Yangın'     },
+  { value: 'helmet', label: 'Baret'        },
+  { value: 'vest',   label: 'Yelek'        },
+  { value: 'mask',   label: 'Maske'        },
+  { value: 'fire',   label: 'Yangın'       },
 ]
 const STATUSES = [
   { value: '',       label: 'Tüm durumlar' },
@@ -65,6 +65,14 @@ export default function AlertHistory({ initialSelectedId, onEventSelect, socket 
     socket.on('llm_updated', onLlmUpdated)
     return () => socket.off('llm_updated', onLlmUpdated)
   }, [socket, selectedId, loadTimeline])
+
+  // Event resolve olduğunda listeyi yenile
+  useEffect(() => {
+    if (!socket) return
+    function onResolved() { loadEvents(filters) }
+    socket.on('event_resolved', onResolved)
+    return () => socket.off('event_resolved', onResolved)
+  }, [socket, filters])
 
   // Dışarıdan seçim gelirse (Dashboard → Alerts)
   useEffect(() => {

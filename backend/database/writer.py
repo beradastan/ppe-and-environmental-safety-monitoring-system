@@ -115,6 +115,20 @@ def write_event(data: dict, image_filename: str | None = None) -> None:
         logger.error("write_event hatasi: %s", exc, exc_info=True)
 
 
+def resolve_event(event_id: str) -> None:
+    """events tablosunda event_status='resolved' olarak günceller (video sonu / pipeline kapanışı)."""
+    now = datetime.now()
+    try:
+        with db_cursor() as cur:
+            cur.execute(
+                "UPDATE events SET event_status = %s, updated_at = %s WHERE event_id = %s",
+                ("resolved", now, event_id),
+            )
+        logger.debug("Event cozumlendi: %s", event_id)
+    except Exception as exc:
+        logger.error("resolve_event hatasi: %s", exc, exc_info=True)
+
+
 def update_llm_report(event_id: str, llm_report: str) -> None:
     """events ve event_timeline tablolarındaki llm_report alanlarını günceller."""
     try:

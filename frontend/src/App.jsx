@@ -21,8 +21,15 @@ export default function App() {
         setActiveAlarms(n => n + 1)
       }
     }
+    function onResolved() {
+      setActiveAlarms(n => Math.max(0, n - 1))
+    }
     socket.on('new_alert', onAlert)
-    return () => socket.off('new_alert', onAlert)
+    socket.on('event_resolved', onResolved)
+    return () => {
+      socket.off('new_alert', onAlert)
+      socket.off('event_resolved', onResolved)
+    }
   }, [])
 
   function addToast(data) {
