@@ -133,7 +133,7 @@ def _build_llm_prompt(payload: dict) -> str:
         if not violations:
             continue
         active = [v for v, _ in _VIO if v in violations]
-        if len(active) >= 2:
+        if len(active) == len(_VIO):
             person_lines.append(f"Kisi #{tid}: hicbir KKD yok")
         else:
             parts = [label for v, label in _VIO if v in violations]
