@@ -307,6 +307,7 @@ TRACKER      = "bytetrack.yaml"   # proje kökündeki özel config (track_buffer
 TEMPORAL_WIN      = 20   # artırıldı: daha kararlı oy (eski: 10)
 STATES_CLEANUP_EVERY = 300  # her N frame'de kayıp track temizliği
 PPE_INFER_EVERY   = 4    # PPE inference her N frame'de bir çalışır (1 = her frame)
+FIRE_INFER_EVERY  = 5    # fire/smoke her N frame'de bir çalışır (1 = her frame)
 
 MIN_CROP_PX      = 40   # crop bu boyutun altındaysa model çağrılmaz (kenar kişi)
 MIN_TRACK_FRAMES     = 10    # bu kadar frame görülmemiş track'lar ghost — event'e dahil edilmez
@@ -892,6 +893,10 @@ def run(args):
     frame_idx         = 0
     event_count       = 0
     seen_stable_pids: set[int] = set()   # bellek temizliği için (stable_pid bazlı)
+    _fire_raw         = False
+    _fire_conf_max    = 0.0
+    _smoke_raw        = False
+    _smoke_conf_max   = 0.0
 
     print("Basladi." + (" ESC = cikis." if display else " Ctrl+C = cikis.") + "\n")
 
@@ -1148,41 +1153,41 @@ def run(args):
                         draw_ppe_box(draw_frame, bbox[0], bbox[1], bbox[2], bbox[3],
                                      f"{vote_label[:8]}({conf:.2f})", c, tag)
 
-            # --- Fire / smoke detection ---
-            fire_res = fire_model.predict(
-                frame, imgsz=IMGSZ, conf=FIRE_CONF, device=device, verbose=False,
-            )[0]
-            fire_raw = False
-            fire_conf_max = 0.0
-            smoke_raw = False
-            smoke_conf_max = 0.0
-            if fire_res.boxes:
-                for box in fire_res.boxes:
-                    cid  = int(box.cls[0])
-                    conf = float(box.conf[0])
-                    name = fire_model.names[cid]
-                    if name == "fire":
-                        fire_raw = True
-                        fire_conf_max = max(fire_conf_max, conf)
-                    elif name == "smoke":
-                        smoke_raw = True
-                        smoke_conf_max = max(smoke_conf_max, conf)
-                    # "other" → yok sayılır
-            if fire_raw or smoke_raw:
-                label = "FIRE" if fire_raw else "SMOKE"
+            # --- Fire / smoke detection (throttled) ---
+            if frame_idx % FIRE_INFER_EVERY == 0:
+                fire_res = fire_model.predict(
+                    frame, imgsz=IMGSZ, conf=FIRE_CONF, device=device, verbose=False,
+                )[0]
+                _fire_raw       = False
+                _fire_conf_max  = 0.0
+                _smoke_raw      = False
+                _smoke_conf_max = 0.0
+                if fire_res.boxes:
+                    for box in fire_res.boxes:
+                        cid  = int(box.cls[0])
+                        conf = float(box.conf[0])
+                        name = fire_model.names[cid]
+                        if name == "fire":
+                            _fire_raw      = True
+                            _fire_conf_max = max(_fire_conf_max, conf)
+                        elif name == "smoke":
+                            _smoke_raw      = True
+                            _smoke_conf_max = max(_smoke_conf_max, conf)
+            if _fire_raw or _smoke_raw:
+                label = "FIRE" if _fire_raw else "SMOKE"
                 cv2.putText(draw_frame, f"{label} DETECTED!", (10, 90),
                             cv2.FONT_HERSHEY_SIMPLEX, 1.0, COLOR_FIRE, 3)
 
             # --- Event state machine ---
-            event_info = event_manager.process_frame(persons_with_ppe, fire_raw or smoke_raw)
+            event_info = event_manager.process_frame(persons_with_ppe, _fire_raw or _smoke_raw)
 
             if event_info["should_save"] and event_info.get("event_id"):
                 event_count += 1
                 save_event(
                     event_info, draw_frame, results_dir, persons_with_ppe,
-                    fire_conf=fire_conf_max,
-                    smoke_detected=smoke_raw,
-                    smoke_conf=smoke_conf_max,
+                    fire_conf=_fire_conf_max,
+                    smoke_detected=_smoke_raw,
+                    smoke_conf=_smoke_conf_max,
                 )
 
             # Doğal ihlal bitişi: resolved geçişini DB'ye bildir (tek seferlik)

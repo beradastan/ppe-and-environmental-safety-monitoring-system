@@ -36,7 +36,7 @@ models:
   vest_model: models/bera/vest_agent_final_best.pt
   mask_model: models/bera/cropmask_agent_final_best.pt
   fire_model: models/bera/fire_smoke_other_agent_final_best.pt
-  mask_imgsz: 1280
+  mask_imgsz: 640
 ppe_pipeline:
   fire_conf: 0.5
   helmet_conf: 0.2
