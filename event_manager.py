@@ -324,15 +324,21 @@ class PersonEventManager:
 
     def _get_person_violations(self) -> list[dict[str, Any]]:
         now = time.monotonic()
-        # Grace period'dakiler dahil — signature ile tutarlılık için
-        return [
-            {
-                "track_id":     rec.track_id,
-                "violations":   rec.violations,
-                "duration_sec": round(now - rec.since, 1),
-            }
-            for rec in self._person_states.values()
-        ]
+        result = []
+        for rec in self._person_states.values():
+            viols = [
+                v for v in rec.violations
+                if not (v == "no_helmet" and not self.check_helmet)
+                and not (v == "no_vest"   and not self.check_vest)
+                and not (v == "no_mask"   and not self.check_mask)
+            ]
+            if viols:
+                result.append({
+                    "track_id":     rec.track_id,
+                    "violations":   viols,
+                    "duration_sec": round(now - rec.since, 1),
+                })
+        return result
 
     # ------------------------------------------------------------------
     # Yangın debounce
