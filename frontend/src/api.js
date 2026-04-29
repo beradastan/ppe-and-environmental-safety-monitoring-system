@@ -64,3 +64,19 @@ export function updateConfig(config) {
 export function imageUrl(eventId, filename) {
   return `/api/images/${eventId}/${filename}`
 }
+
+export function fetchPipelineStatus() {
+  return _get('/api/pipeline/status')
+}
+
+export function startPipeline(source) {
+  return _post('/api/pipeline/start', { source })
+}
+
+export function stopPipeline() {
+  return _post('/api/pipeline/stop', {})
+}
+
+export function browsePipeline() {
+  return _get('/api/pipeline/browse')
+}

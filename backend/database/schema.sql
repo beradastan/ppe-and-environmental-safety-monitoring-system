@@ -53,10 +53,6 @@ CREATE TABLE IF NOT EXISTS event_notes (
 ALTER TABLE events          ADD COLUMN IF NOT EXISTS persons JSONB;
 ALTER TABLE event_timeline  ADD COLUMN IF NOT EXISTS persons JSONB;
 
--- Duplicate watcher event'lerini engelle: aynı (event_id, status, ts) ikilisi yalnızca 1 kez girer
-CREATE UNIQUE INDEX IF NOT EXISTS uq_timeline_event_status_ts
-    ON event_timeline(event_id, event_status, ts);
-
 -- İndeksler
 CREATE INDEX IF NOT EXISTS idx_events_status      ON events(event_status);
 CREATE INDEX IF NOT EXISTS idx_events_updated_at  ON events(updated_at DESC);

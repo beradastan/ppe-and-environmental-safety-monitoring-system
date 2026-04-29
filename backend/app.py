@@ -18,12 +18,15 @@ Socket.IO:
 from __future__ import annotations
 
 import logging
+import os as _os
 import re
+import subprocess as _subprocess
 import sys
+import tempfile as _tempfile
 from pathlib import Path
 
 import yaml
-from flask import Flask, abort, jsonify, request
+from flask import Flask, Response, abort, jsonify, request
 from flask.helpers import send_file
 from flask_cors import CORS
 from flask_socketio import SocketIO
@@ -276,6 +279,98 @@ def api_resolve_event(event_id: str):
         resolve_event(event_id)
     socketio.emit("event_resolved", {"event_id": event_id})
     return jsonify({"ok": True})
+
+
+_pipeline_proc:   "_subprocess.Popen | None" = None
+_pipeline_source: str = ""
+_STREAM_FRAME_PATH = _os.path.join(_tempfile.gettempdir(), "factory_safety_stream.jpg")
+_VIDEO_EXTS = {'.mp4', '.avi', '.mov', '.mkv', '.webm'}
+
+
+@app.route("/api/pipeline/status")
+def api_pipeline_status():
+    global _pipeline_proc
+    running = _pipeline_proc is not None and _pipeline_proc.poll() is None
+    if not running:
+        _pipeline_proc = None
+    return jsonify({"running": running, "source": _pipeline_source if running else ""})
+
+
+@app.route("/api/pipeline/browse")
+def api_pipeline_browse():
+    try:
+        ps = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+        result = _subprocess.run(
+            [ps, '-STA', '-Command',
+             '[System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms") | Out-Null; '
+             '$d = New-Object System.Windows.Forms.OpenFileDialog; '
+             '$d.Filter = "Video (*.mp4;*.avi;*.mov;*.mkv)|*.mp4;*.avi;*.mov;*.mkv|All (*.*)|*.*"; '
+             '$d.Title = "Video sec"; '
+             '$d.ShowDialog() | Out-Null; '
+             '$d.FileName'],
+            capture_output=True, text=True, timeout=60,
+        )
+        path = result.stdout.strip()
+    except Exception as exc:
+        logger.warning("Browse hatasi: %s", exc)
+        path = ""
+    return jsonify({"path": path})
+
+
+@app.route("/api/pipeline/start", methods=["POST"])
+def api_pipeline_start():
+    global _pipeline_proc, _pipeline_source
+    if _pipeline_proc is not None and _pipeline_proc.poll() is None:
+        return jsonify({"ok": False, "error": "Pipeline zaten calisiyor."})
+    body   = request.get_json(silent=True) or {}
+    source = str(body.get("source", "")).strip()
+    if not source:
+        abort(400, "Kaynak belirtilmedi.")
+    try:
+        import torch as _torch
+        _device = "cuda" if _torch.cuda.is_available() else "cpu"
+    except Exception:
+        _device = "cpu"
+    cmd = [sys.executable, str(PROJECT_ROOT / "run_live_video.py"),
+           "--display", "--device", _device]
+    if source.isdigit():
+        cmd += ["--camera", source]
+    else:
+        src_path = Path(source)
+        if not src_path.is_absolute():
+            src_path = PROJECT_ROOT / source
+        if not src_path.exists():
+            abort(400, "Dosya bulunamadi.")
+        if src_path.suffix.lower() not in _VIDEO_EXTS:
+            abort(400, "Desteklenmeyen video formati.")
+        cmd += ["--video", str(src_path)]
+    _pipeline_proc   = _subprocess.Popen(cmd, cwd=str(PROJECT_ROOT))
+    _pipeline_source = source
+    return jsonify({"ok": True})
+
+
+@app.route("/api/pipeline/stop", methods=["POST"])
+def api_pipeline_stop():
+    global _pipeline_proc, _pipeline_source
+    if _pipeline_proc is None or _pipeline_proc.poll() is not None:
+        _pipeline_proc   = None
+        _pipeline_source = ""
+        return jsonify({"ok": True})
+    _pipeline_proc.terminate()
+    _pipeline_proc   = None
+    _pipeline_source = ""
+    return jsonify({"ok": True})
+
+
+@app.route("/api/stream/frame")
+def api_stream_frame():
+    try:
+        with open(_STREAM_FRAME_PATH, 'rb') as f:
+            data = f.read()
+        return Response(data, mimetype='image/jpeg',
+                        headers={'Cache-Control': 'no-store, no-cache'})
+    except Exception:
+        abort(404)
 
 
 @app.route("/api/config", methods=["GET"])

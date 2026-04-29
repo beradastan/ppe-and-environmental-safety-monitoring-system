@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard.jsx'
 import AlertHistory from './pages/AlertHistory.jsx'
 import Reports from './pages/Reports.jsx'
 import Settings from './pages/Settings.jsx'
+import Demo from './pages/Demo.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 import socket from './socket.js'
 
@@ -67,6 +68,7 @@ export default function App() {
           )}
           {page === 'reports'  && <Reports />}
           {page === 'settings' && <Settings />}
+          {page === 'demo'     && <Demo />}
         </ErrorBoundary>
       </div>
       <ToastContainer toasts={toasts} onDismiss={id => setToasts(prev => prev.filter(t => t.id !== id))} />

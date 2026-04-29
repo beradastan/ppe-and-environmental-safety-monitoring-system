@@ -92,7 +92,7 @@ def write_event(data: dict, image_filename: str | None = None) -> None:
                 ),
             )
 
-            # event_timeline: her gecis ayri satir — duplicate'leri sessizce yoksay
+            # event_timeline: her gecis ayri satir
             cur.execute(
                 """
                 INSERT INTO event_timeline (
@@ -100,7 +100,6 @@ def write_event(data: dict, image_filename: str | None = None) -> None:
                     repeat_count, duration_sec, change_reason,
                     signature, llm_report, image_filename, persons
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s::jsonb)
-                ON CONFLICT (event_id, event_status, ts) DO NOTHING
                 """,
                 (
                     event_id, event_status, ts,
