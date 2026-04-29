@@ -79,31 +79,35 @@ def _load_llm_cfg() -> dict:
 _llm_threads: list[threading.Thread] = []  # pipeline bitince join için
 
 _LLM_SYSTEM = (
-    "You are a factory safety AI. Write exactly 1 sentence in Turkish using ONLY the given data.\n"
-    "Rules:\n"
-    "- 'hicbir KKD yok' → use phrase 'hiçbir KKD takmıyor'.\n"
-    "- Include total person context if provided (e.g. '5 kişiden 2'si uyumsuz').\n"
-    "- If repeat_count > 1, start with 'Bu bölgede Nth kez alarm;'.\n"
-    "- Do NOT mention confidence, trust, or verification. No greetings, no extra sentences.\n\n"
-    "Input: Olay tipi: KKD ihlali\nSahada: 3 kisi (1 ihlal)\nKisi #2: baret=YOK\n"
-    "Output: Kişi #2 baret takmıyor; sahada 3 kişiden 1'i uyumsuz.\n\n"
-    "Input: Olay tipi: KKD ihlali\nSahada: 2 kisi (1 ihlal)\nKisi #9: yelek=YOK\n"
-    "Output: Kişi #9 yelek takmıyor.\n\n"
-    "Input: Olay tipi: KKD ihlali (2 kisi)\nSahada: 5 kisi (2 ihlal)\nKisi #1: baret=YOK, yelek=YOK\nKisi #3: yelek=YOK\n"
-    "Output: Kişi #1 baret ve yelek takmıyor, kişi #3 yelek takmıyor; 5 kişiden 2'si uyumsuz.\n\n"
-    "Input: Olay tipi: KKD ihlali\nSahada: 4 kisi (1 ihlal)\nKisi #5: hicbir KKD yok\n"
-    "Output: Kişi #5 hiçbir KKD takmıyor; sahada 4 kişiden 1'i tamamen uyumsuz.\n\n"
-    "Input: Olay tipi: KKD ihlali (2 kisi) — 3. tekrar\nSahada: 4 kisi (2 ihlal)\nKisi #1: hicbir KKD yok\nKisi #4: yelek=YOK\n"
-    "Output: Bu bölgede 3. kez alarm; kişi #1 hiçbir KKD takmıyor, kişi #4 yelek takmıyor.\n\n"
-    "Input: Olay tipi: Yangin/duman\nSahne: yangin tespit edildi\n"
-    "Output: Sahada yangın tespit edildi.\n\n"
-    "Input: Olay tipi: Yangin/duman\nSahne: duman tespit edildi\n"
-    "Output: Sahada duman tespit edildi.\n\n"
-    "Input: Olay tipi: Coklu tehlike (2 kisi)\nSahne: yangin tespit edildi\nSahada: 4 kisi (2 ihlal)\nKisi #2: yelek=YOK\nKisi #4: baret=YOK\n"
-    "Output: Sahada yangın tespit edildi; kişi #2 yelek, kişi #4 baret takmıyor.\n\n"
-    "Input: Olay tipi: Coklu tehlike (1 kisi) — 2. tekrar\nSahne: duman tespit edildi\nSahada: 6 kisi (1 ihlal)\nKisi #3: hicbir KKD yok\n"
-    "Output: Bu bölgede 2. kez alarm; sahada duman var ve kişi #3 hiçbir KKD takmıyor.\n\n"
-    "Now write only the Output line for the given input. Nothing else."
+    "Sen deneyimli bir fabrika iş güvenliği uzmanısın.\n"
+    "Sana verilen ihlal verisini analiz et ve akıcı, profesyonel Türkçe ile "
+    "2-3 cümlelik bir güvenlik raporu yaz.\n\n"
+    "YAPI:\n"
+    "- 1. cümle: Kişi #N formatında kişi ID'lerini ve eksik PPE'leri (baret/yelek/maske) belirt\n"
+    "- 2. cümle: Süreyi ve sahne bağlamını değerlendir, risk seviyesini vurgula\n"
+    "- 3. cümle: Kritik veya tekrarlayan durumlarda önerilen acil eylem\n\n"
+    "KURALLAR:\n"
+    "- Tüm PPE eksikse: 'hiçbir KKD takmıyor' ifadesini kullan\n"
+    "- Tekrar sayısı 3+: raporun başına 'Tekrarlayan ihlal:' ekle\n"
+    "- Yangın/duman varsa önce onu belirt, ardından PPE ihlalini ekle\n"
+    "- Sadece verilen verideki kişi ve ihlalleri yaz, fazladan bilgi uydurma\n"
+    "- Selamlama, özür veya 'Tabii ki' gibi dolgu ifadeler kullanma\n\n"
+    "ÖRNEK 1:\n"
+    "Veri: KKD ihlali | Kisi #2: baret=YOK | Süre: 42sn | Sahada: 4 kisi (1 ihlal)\n"
+    "Rapor: Kişi #2 baret takmıyor. "
+    "Bu ihlal 42 saniyedir devam etmekte olup sahada 4 kişiden 1'i uyumsuz durumdadır. "
+    "İlgili çalışanın derhal uyarılması gerekmektedir.\n\n"
+    "ÖRNEK 2:\n"
+    "Veri: KKD ihlali — 4. tekrar | Kisi #1: hicbir KKD yok | Kisi #5: yelek=YOK | Süre: 75sn | Sahada: 6 kisi (2 ihlal)\n"
+    "Rapor: Tekrarlayan ihlal: kişi #1 hiçbir KKD takmıyor, kişi #5 yelek takmıyor. "
+    "Bu durum 75 saniyedir sürmekte olup bölgede 4. kez alarm verilmektedir; 6 kişiden 2'si uyumsuz. "
+    "Bölge sorumlusunun acil müdahalesi ve tekrarlayan ihlallerin tutanağa geçirilmesi zorunludur.\n\n"
+    "ÖRNEK 3:\n"
+    "Veri: Çoklu tehlike | Sahne: yangin tespit edildi | Kisi #3: baret=YOK, yelek=YOK | Süre: 20sn | Sahada: 5 kisi (1 ihlal)\n"
+    "Rapor: Sahada yangın tespit edildi; aynı zamanda kişi #3 baret ve yelek takmıyor. "
+    "Yangın tehlikesi mevcut KKD eksikliğiyle birleşerek ciddi bir risk oluşturmaktadır. "
+    "Tahliye protokolü başlatılmalı ve kişi #3 güvenli bölgeye yönlendirilmelidir.\n\n"
+    "Şimdi aşağıdaki veri için yalnızca raporu yaz:"
 )
 
 
@@ -120,6 +124,7 @@ def _build_llm_prompt(payload: dict) -> str:
     scene         = payload.get("scene", {})
     repeat_count  = int(payload.get("repeat_count", 1))
     total_persons = int(payload.get("total_persons", len(persons)))
+    duration_sec  = float(payload.get("duration_sec", 0))
 
     person_lines = []
     for p in persons:
@@ -132,21 +137,19 @@ def _build_llm_prompt(payload: dict) -> str:
             person_lines.append(f"Kisi #{tid}: hicbir KKD yok")
         else:
             parts = [label for v, label in _VIO if v in violations]
-            person_lines.append(f"Kisi #{tid}: {', '.join(p + '=YOK' for p in parts)}")
+            person_lines.append(f"Kisi #{tid}: {', '.join(lbl + '=YOK' for lbl in parts)}")
 
     violator_count = len(person_lines)
     repeat_suffix  = f" — {repeat_count}. tekrar" if repeat_count > 1 else ""
-    persons_ctx    = (
-        f"Sahada: {total_persons} kisi ({violator_count} ihlal)\n"
-        if total_persons > 0 and violator_count > 0 else ""
-    )
+    dur_str        = f" | Süre: {int(duration_sec)}sn" if duration_sec >= 5 else ""
+    ctx_str        = f" | Sahada: {total_persons} kisi ({violator_count} ihlal)" if total_persons > 0 and violator_count > 0 else ""
 
     scene_parts = []
     if scene.get("fire_detected"):
         scene_parts.append("yangin tespit edildi")
     if scene.get("smoke_detected"):
         scene_parts.append("duman tespit edildi")
-    scene_str = "Sahne: " + ", ".join(scene_parts) + "\n" if scene_parts else ""
+    scene_str = " | Sahne: " + ", ".join(scene_parts) if scene_parts else ""
 
     if event_type == "fire_detected":
         type_tr = "Yangin/duman"
@@ -155,21 +158,18 @@ def _build_llm_prompt(payload: dict) -> str:
     else:
         type_tr = f"Coklu tehlike ({violator_count} kisi)" if violator_count > 1 else "Coklu tehlike"
 
-    persons_section = "\n".join(person_lines) + "\n" if person_lines else ""
+    persons_section = " | " + " | ".join(person_lines) if person_lines else ""
     return (
-        f"Input: Olay tipi: {type_tr}{repeat_suffix}\n"
-        f"{scene_str}"
-        f"{persons_ctx}"
-        f"{persons_section}"
-        "Output:"
+        f"Veri: {type_tr}{repeat_suffix}{dur_str}{scene_str}{ctx_str}{persons_section}\n"
+        "Rapor:"
     )
 
 
 def _call_ollama(prompt: str, cfg: dict, system=None, _retries: int = 2):
     body = {
-        "model":       cfg.get("model", "mistral"),
+        "model":       cfg.get("model", "qwen2.5:7b"),
         "prompt":      prompt,
-        "temperature": cfg.get("temperature", 0.1),
+        "temperature": cfg.get("temperature", 0.3),
         "stream":      False,
     }
     if system:
@@ -182,15 +182,12 @@ def _call_ollama(prompt: str, cfg: dict, system=None, _retries: int = 2):
             resp = requests.post(url, json=body, timeout=timeout)
             if resp.status_code == 200:
                 raw = resp.json().get("response", "").strip()
-                raw = raw.removeprefix("Output:").strip(" \"'\n")
-                first_line = raw.split("\n")[0].strip().strip("\"'")
-                if first_line.endswith("."):
-                    return first_line
-                if "." in first_line:
-                    return first_line[:first_line.rindex(".") + 1]
-                if first_line:
-                    return first_line
-                # Boş yanıt — retry
+                raw = raw.removeprefix("Rapor:").removeprefix("Output:").strip(" \"'\n")
+                # Paragraf: satırları birleştir, boş satırları temizle
+                lines = [l.strip() for l in raw.splitlines() if l.strip()]
+                text  = " ".join(lines)
+                if text:
+                    return text
                 print(f"  [LLM] Bos yanit (deneme {attempt}), yenileniyor...")
         except Exception as e:
             print(f"  [LLM] Hata (deneme {attempt}): {e}")
@@ -222,30 +219,12 @@ _KW_MAP = {"no_helmet": "baret", "no_vest": "yelek", "no_mask": "maske"}
 
 
 def _validate_llm_report(report: str, payload: dict) -> bool:
-    """
-    LLM çıktısının gerçek ihlal verileriyle tutarlı olup olmadığını kontrol eder.
-    Kişi başına yalnızca var olan PPE ihlalleri geçerlidir; fazladan keyword → False.
-    """
+    """Raporda geçen kişi ID'lerinin payload'daki gerçek kişilerden olduğunu doğrular."""
     import re
-    persons = payload.get("persons", [])
-    valid: dict[int, set[str]] = {
-        p["track_id"]: {_KW_MAP[v] for v in p.get("violations", []) if v in _KW_MAP}
-        for p in persons
-    }
-    # Raporu #N sınırlarında böl, her kişi scope'unda izin verilmeyen keyword ara
-    tokens = re.split(r"(#\d+)", report)
-    current_tid: int | None = None
-    for token in tokens:
-        m = re.fullmatch(r"#(\d+)", token)
-        if m:
-            current_tid = int(m.group(1))
-            if current_tid not in valid:
-                return False  # payload'da olmayan kişi ID'si
-        elif current_tid is not None:
-            for kw in ("baret", "yelek", "maske"):
-                if kw in token and kw not in valid[current_tid]:
-                    return False  # bu kişi için bu ihlal yok
-    return True
+    persons  = payload.get("persons", [])
+    valid_ids = {p["track_id"] for p in persons}
+    mentioned = {int(m) for m in re.findall(r"#(\d+)", report)}
+    return mentioned.issubset(valid_ids)
 
 
 def _llm_report_async(payload: dict, json_path: Path, cfg: dict) -> None:
