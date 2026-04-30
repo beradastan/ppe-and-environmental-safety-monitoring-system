@@ -12,6 +12,7 @@ import sys
 import os
 import cv2
 import yaml
+import time
 from collections import Counter, defaultdict, deque
 from pathlib import Path
 
@@ -35,7 +36,9 @@ def _load_cfg() -> dict:
 
 _cfg     = _load_cfg()
 _models  = _cfg.get("models", {})
-_DEVICE  = _models.get("device", "cuda")
+_DEVICE  = "cpu" if not __import__("torch").cuda.is_available() else _models.get("device", "cuda")
+if _DEVICE == "auto":
+    _DEVICE = "cuda" if __import__("torch").cuda.is_available() else "cpu"
 
 PERSON_MODEL_PATH = _models.get("person_model", "models/person_agent_scene_vinayakstyle_best.pt")
 HELMET_MODEL_PATH = _models.get("helmet_model", "models/vinayak_trained_byBera/helmet_agent_final_best.pt")
@@ -46,13 +49,13 @@ MASK_MODEL_PATH   = _models.get("mask_model",   "models/mask_agent_scene_200ep_b
 # Sabitler
 # ---------------------------------------------------------------------------
 
-HELMET_CONF  = 0.20
-VEST_CONF    = 0.30
-MASK_CONF    = 0.25
-PERSON_CONF  = 0.25
-IMGSZ        = 640
-TEMPORAL_WIN = 20
-INSIDE_FRAC_THR = 0.40
+HELMET_CONF  = 0.15
+VEST_CONF    = 0.20
+MASK_CONF    = 0.20
+PERSON_CONF  = 0.20
+IMGSZ        = 1024
+TEMPORAL_WIN = 30
+INSIDE_FRAC_THR = 0.30
 TRACKER      = "bytetrack.yaml"
 SAMPLE_EVERY = 3
 
@@ -82,6 +85,19 @@ VIDEOS = [
     ("mask",   "test/mask_test.mp4",   {
         "n_main": 1,
         "violations": {"helmet": 1, "vest": 0, "mask": 0},
+    }),
+    # --- Yeni dış test videoları ---
+    # Intel demo: sarı baret+yelek = tam PPE, siyah kıyafetli = ihlalci.
+    # Maske değerlendirilmiyor (pre-COVID, kimse maske takmıyor).
+    ("intel",  "test/intel_safety_full.mp4", {
+        "n_main": 3,
+        "violations": {"helmet": 1, "vest": 1, "mask": None},
+    }),
+    # KARAM tanıtım: 1 işçi başta tam PPE yok, sonra beyaz baret takıyor.
+    # Maske: Hindistan fabrikası, işçi maske takmıyor → ihlal sayılır.
+    ("karam",  "test/github_hardhat.mp4", {
+        "n_main": 1,
+        "violations": {"helmet": 1, "vest": 1, "mask": 1},
     }),
 ]
 
@@ -137,7 +153,7 @@ def _best_scene(
     return best if best else ("unknown", 0.0)
 
 
-def vote(q: deque, min_known: int = 3, ratio: float = 0.5) -> str:
+def vote(q: deque, min_known: int = 3, ratio: float = 0.4) -> str:
     if not q:
         return "unknown"
     top, _ = Counter(q).most_common(1)[0]
@@ -161,7 +177,7 @@ def run_video(
     models: tuple,
     tracker: str = TRACKER,
     track_every_frame: bool = True,
-) -> dict[str, tuple]:
+) -> tuple[dict[str, tuple], float, int]:
     """Videoyu işler, per-PPE (tp,fp,fn,tn) tuple döndürür."""
     person_model, helmet_model, vest_model, mask_model = models
 
@@ -181,12 +197,16 @@ def run_video(
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     fps          = cap.get(cv2.CAP_PROP_FPS)
 
+    # None → o PPE tipi bu video için değerlendirilmez
+    skip = {ppe for ppe, v in violations.items() if v is None}
+
     print(f"\n{'─'*60}")
     print(f"  {name.upper()}  —  {Path(path).name}  ({total_frames}f @ {fps:.0f}fps)")
-    print(f"  GT ({n_main} kişi):  "
-          f"helmet ihlal={violations['helmet']}  "
-          f"vest ihlal={violations['vest']}  "
-          f"mask ihlal={violations['mask']}")
+    viol_str = "  ".join(
+        f"{p}={'SKIP' if violations[p] is None else violations[p]}"
+        for p in ("helmet", "vest", "mask")
+    )
+    print(f"  GT ({n_main} kişi):  {viol_str}")
     print(f"  tracker={tracker}  track_every_frame={track_every_frame}")
     print(f"{'─'*60}")
 
@@ -198,6 +218,7 @@ def run_video(
     })
 
     frame_idx = 0
+    t_start = time.time()
     while True:
         ok, frame = cap.read()
         if not ok:
@@ -245,17 +266,19 @@ def run_video(
             states[track_id]["mask"].append(mlabel)
             states[track_id]["obs"] += 1
 
+    t_end = time.time()
+    elapsed = t_end - t_start
     cap.release()
 
     # --- Per-person sonuçlar ---
     person_results: dict[int, tuple[str, str, str, int]] = {}
     for tid, st in sorted(states.items()):
         obs = st["obs"]
-        if obs < 3:
+        if obs < 2:
             continue
-        hv = vote(st["hardhat"], min_known=3)
-        vv = vote(st["vest"],    min_known=2)
-        mv = vote(st["mask"],    min_known=1)
+        hv = vote(st["hardhat"], min_known=2, ratio=0.4)
+        vv = vote(st["vest"],    min_known=2, ratio=0.4)
+        mv = vote(st["mask"],    min_known=1, ratio=0.4)
 
         h_flag = "VIOLATION" if hv == "NO-Hardhat"     else ("ok" if hv == "Hardhat"      else "unknown")
         v_flag = "VIOLATION" if vv == "NO-Safety Vest" else ("ok" if vv == "Safety Vest"  else "unknown")
@@ -293,6 +316,10 @@ def run_video(
     print(f"  {'─'*60}")
     for ppe in ("helmet", "vest", "mask"):
         e_v  = violations[ppe]
+        if e_v is None:
+            print(f"  {ppe:<8}  {'SKIP':>8}  {'SKIP':>8}  {'SKIP':>4}  {'SKIP':>4}  {'SKIP':>4}  {'SKIP':>4}")
+            continue
+            
         e_ok = n_main - e_v
         det  = d_v[ppe]
 
@@ -308,8 +335,10 @@ def run_video(
         print(f"  {ppe:<8}  {e_v:>8}  {det:>8}  {tp:>4}  {fp:>4}  {fn:>4}  {tn:>4}{flag_str}")
         results[ppe] = (tp, fp, fn, tn)
 
+    fps_val = frame_idx / elapsed if elapsed > 0 else 0.0
+    print(f"  [Performans] {frame_idx} kare | {elapsed:.2f} saniye | {fps_val:.1f} FPS")
     print(f"  Toplam kişi (>=3 obs): {len(person_results)}  |  Ana kişi: {len(main_persons)}/{n_main}")
-    return results
+    return results, elapsed, frame_idx
 
 
 # ---------------------------------------------------------------------------
@@ -327,14 +356,19 @@ def main(tracker: str = TRACKER, track_every_frame: bool = True) -> None:
     print(f"  Tracker: {tracker}  |  track_every_frame: {track_every_frame}")
 
     all_results: dict[str, dict[str, str]] = {}
+    tot_elapsed = 0.0
+    tot_frames = 0
 
     for name, path, gt in VIDEOS:
         if not Path(path).exists():
             print(f"\n[ATLA] {name}: {path} bulunamadı.")
             continue
-        all_results[name] = run_video(name, path, gt, models,
+        res, el, fr = run_video(name, path, gt, models,
                                       tracker=tracker,
                                       track_every_frame=track_every_frame)
+        all_results[name] = res
+        tot_elapsed += el
+        tot_frames += fr
 
     if not all_results:
         print("\nHiç sonuç yok.")
@@ -382,6 +416,8 @@ def main(tracker: str = TRACKER, track_every_frame: bool = True) -> None:
     else:
         print("\nTum kisi-PPE tespitler dogru!")
 
+    top_fps = tot_frames / tot_elapsed if tot_elapsed > 0 else 0.0
+    print(f"\n[GENEL PERFORMANS] Toplam {tot_frames} kare | {tot_elapsed:.2f} saniye | Ortalama {top_fps:.1f} FPS")
     print(f"\n{'='*60}")
 
 
