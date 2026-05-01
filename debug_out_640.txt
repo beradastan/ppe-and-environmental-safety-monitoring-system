@@ -1,0 +1,310 @@
+Modeller yükleniyor...
+  Hazır. Cihaz: cuda
+
+  Tracker: bytetrack.yaml  |  track_every_frame: True
+
+────────────────────────────────────────────────────────────
+  NOHAT  —  nohat_test.mp4  (760f @ 30fps)
+  GT (5 kişi):  helmet=2  vest=0  mask=5
+  tracker=bytetrack.yaml  track_every_frame=True
+────────────────────────────────────────────────────────────
+
+    ID    Obs            Helmet              Vest              Mask  Ana?
+  ────  ─────  ────────────────  ────────────────  ────────────────  ────
+    33    205                ok                ok           unknown   <-
+         H:{'Hardhat': 30}  V:{'Safety Vest': 30}  M:{'unknown': 30}
+     2     49         VIOLATION                ok         VIOLATION   <-
+         H:{'NO-Hardhat': 27, 'unknown': 1, 'Hardhat': 2}  V:{'Safety Vest': 30}  M:{'NO-Mask': 27, 'unknown': 3}
+    34     33         VIOLATION                ok         VIOLATION   <-
+         H:{'NO-Hardhat': 5, 'unknown': 20, 'Hardhat': 5}  V:{'Safety Vest': 9, 'unknown': 21}  M:{'unknown': 29, 'NO-Mask': 1}
+     4     25                ok                ok         VIOLATION   <-
+         H:{'Hardhat': 23, 'unknown': 2}  V:{'Safety Vest': 25}  M:{'unknown': 23, 'NO-Mask': 1, 'Mask': 1}
+   106     21           unknown                ok           unknown   <-
+         H:{'unknown': 21}  V:{'Safety Vest': 21}  M:{'unknown': 21}
+   105     11           unknown                ok           unknown  
+         H:{'unknown': 11}  V:{'Safety Vest': 11}  M:{'unknown': 11}
+   122     10           unknown                ok           unknown  
+         H:{'unknown': 10}  V:{'Safety Vest': 6, 'unknown': 4}  M:{'unknown': 10}
+     3      8                ok                ok         VIOLATION  
+         H:{'Hardhat': 8}  V:{'Safety Vest': 8}  M:{'unknown': 3, 'NO-Mask': 5}
+    11      8           unknown                ok           unknown  
+         H:{'unknown': 8}  V:{'Safety Vest': 3, 'unknown': 2, 'NO-Safety Vest': 3}  M:{'unknown': 8}
+    94      8           unknown                ok           unknown  
+         H:{'unknown': 7, 'Hardhat': 1}  V:{'unknown': 4, 'Safety Vest': 4}  M:{'unknown': 8}
+     1      7                ok                ok         VIOLATION  
+         H:{'Hardhat': 6, 'unknown': 1}  V:{'Safety Vest': 5, 'unknown': 2}  M:{'unknown': 3, 'NO-Mask': 4}
+    39      6           unknown                ok           unknown  
+         H:{'unknown': 6}  V:{'unknown': 1, 'Safety Vest': 5}  M:{'unknown': 6}
+   111      5           unknown                ok           unknown  
+         H:{'unknown': 5}  V:{'Safety Vest': 5}  M:{'unknown': 5}
+     9      4           unknown                ok                ok  
+         H:{'unknown': 4}  V:{'unknown': 1, 'Safety Vest': 3}  M:{'Mask': 1, 'unknown': 3}
+    51      4           unknown           unknown           unknown  
+         H:{'unknown': 4}  V:{'unknown': 4}  M:{'unknown': 4}
+    55      4           unknown                ok           unknown  
+         H:{'unknown': 4}  V:{'Safety Vest': 3, 'unknown': 1}  M:{'unknown': 4}
+    67      4           unknown           unknown           unknown  
+         H:{'unknown': 4}  V:{'unknown': 3, 'Safety Vest': 1}  M:{'unknown': 4}
+   131      4           unknown                ok           unknown  
+         H:{'unknown': 4}  V:{'Safety Vest': 4}  M:{'unknown': 4}
+   143      3           unknown                ok           unknown  
+         H:{'unknown': 3}  V:{'Safety Vest': 2, 'unknown': 1}  M:{'unknown': 3}
+    49      2           unknown           unknown           unknown  
+         H:{'unknown': 2}  V:{'unknown': 1, 'NO-Safety Vest': 1}  M:{'unknown': 2}
+
+  PPE       GT_ihlal    Tespit    TP    FP    FN    TN
+  ────────────────────────────────────────────────────────────
+  helmet           2         2     2     0     0     3
+  vest             0         0     0     0     0     5
+  mask             5         3     3     0     2     0  <- FN=2
+  [Performans] 760 kare | 21.22 saniye | 35.8 FPS
+  Toplam kişi (>=3 obs): 20  |  Ana kişi: 5/5
+
+────────────────────────────────────────────────────────────
+  NOVEST  —  novest_test.mp4  (566f @ 50fps)
+  GT (2 kişi):  helmet=0  vest=1  mask=2
+  tracker=bytetrack.yaml  track_every_frame=True
+────────────────────────────────────────────────────────────
+
+    ID    Obs            Helmet              Vest              Mask  Ana?
+  ────  ─────  ────────────────  ────────────────  ────────────────  ────
+   157     88                ok         VIOLATION         VIOLATION   <-
+         H:{'Hardhat': 29, 'unknown': 1}  V:{'NO-Safety Vest': 30}  M:{'NO-Mask': 26, 'unknown': 4}
+   168     88                ok         VIOLATION         VIOLATION   <-
+         H:{'Hardhat': 25, 'unknown': 4, 'NO-Hardhat': 1}  V:{'Safety Vest': 11, 'NO-Safety Vest': 12, 'unknown': 7}  M:{'unknown': 21, 'NO-Mask': 9}
+   158     61                ok         VIOLATION         VIOLATION  
+         H:{'Hardhat': 30}  V:{'NO-Safety Vest': 29, 'Safety Vest': 1}  M:{'NO-Mask': 29, 'unknown': 1}
+   177      7                ok         VIOLATION         VIOLATION  
+         H:{'Hardhat': 7}  V:{'unknown': 5, 'NO-Safety Vest': 2}  M:{'NO-Mask': 7}
+   163      4                ok         VIOLATION         VIOLATION  
+         H:{'Hardhat': 4}  V:{'Safety Vest': 1, 'NO-Safety Vest': 3}  M:{'NO-Mask': 3, 'unknown': 1}
+   160      2                ok         VIOLATION         VIOLATION  
+         H:{'Hardhat': 2}  V:{'NO-Safety Vest': 2}  M:{'NO-Mask': 2}
+
+  PPE       GT_ihlal    Tespit    TP    FP    FN    TN
+  ────────────────────────────────────────────────────────────
+  helmet           0         0     0     0     0     2
+  vest             1         2     1     1     0     0  <- FP=1
+  mask             2         2     2     0     0     0
+  [Performans] 566 kare | 22.85 saniye | 24.8 FPS
+  Toplam kişi (>=3 obs): 6  |  Ana kişi: 2/2
+
+────────────────────────────────────────────────────────────
+  NOPPE  —  noppe_test.mp4  (604f @ 25fps)
+  GT (4 kişi):  helmet=4  vest=4  mask=4
+  tracker=bytetrack.yaml  track_every_frame=True
+────────────────────────────────────────────────────────────
+
+    ID    Obs            Helmet              Vest              Mask  Ana?
+  ────  ─────  ────────────────  ────────────────  ────────────────  ────
+   181    162         VIOLATION           unknown         VIOLATION   <-
+         H:{'NO-Hardhat': 30}  V:{'unknown': 30}  M:{'unknown': 19, 'NO-Mask': 11}
+   186    131                ok         VIOLATION         VIOLATION   <-
+         H:{'Hardhat': 28, 'unknown': 2}  V:{'NO-Safety Vest': 30}  M:{'NO-Mask': 16, 'unknown': 14}
+   179    118                ok         VIOLATION         VIOLATION   <-
+         H:{'NO-Hardhat': 3, 'Hardhat': 13, 'unknown': 14}  V:{'NO-Safety Vest': 16, 'unknown': 14}  M:{'NO-Mask': 16, 'unknown': 14}
+   210     81                ok         VIOLATION         VIOLATION   <-
+         H:{'Hardhat': 30}  V:{'NO-Safety Vest': 30}  M:{'NO-Mask': 30}
+   246     43         VIOLATION         VIOLATION         VIOLATION  
+         H:{'NO-Hardhat': 21, 'Hardhat': 9}  V:{'NO-Safety Vest': 30}  M:{'NO-Mask': 30}
+   200     37         VIOLATION         VIOLATION         VIOLATION  
+         H:{'NO-Hardhat': 21, 'unknown': 9}  V:{'NO-Safety Vest': 15, 'unknown': 15}  M:{'NO-Mask': 7, 'unknown': 23}
+   184     24         VIOLATION         VIOLATION         VIOLATION  
+         H:{'NO-Hardhat': 11, 'unknown': 11, 'Hardhat': 2}  V:{'unknown': 18, 'NO-Safety Vest': 6}  M:{'unknown': 20, 'NO-Mask': 4}
+   185     23         VIOLATION         VIOLATION         VIOLATION  
+         H:{'NO-Hardhat': 9, 'Hardhat': 6, 'unknown': 8}  V:{'unknown': 7, 'NO-Safety Vest': 16}  M:{'NO-Mask': 9, 'unknown': 13, 'Mask': 1}
+   182     21         VIOLATION         VIOLATION         VIOLATION  
+         H:{'NO-Hardhat': 13, 'Hardhat': 4, 'unknown': 4}  V:{'unknown': 13, 'NO-Safety Vest': 8}  M:{'NO-Mask': 20, 'unknown': 1}
+   230     19                ok         VIOLATION         VIOLATION  
+         H:{'Hardhat': 16, 'NO-Hardhat': 2, 'unknown': 1}  V:{'NO-Safety Vest': 19}  M:{'NO-Mask': 15, 'unknown': 4}
+   236     15                ok         VIOLATION         VIOLATION  
+         H:{'Hardhat': 13, 'unknown': 2}  V:{'NO-Safety Vest': 9, 'unknown': 6}  M:{'unknown': 14, 'NO-Mask': 1}
+   257     15                ok         VIOLATION         VIOLATION  
+         H:{'Hardhat': 15}  V:{'NO-Safety Vest': 15}  M:{'NO-Mask': 15}
+   196     14                ok         VIOLATION         VIOLATION  
+         H:{'Hardhat': 14}  V:{'NO-Safety Vest': 11, 'Safety Vest': 3}  M:{'NO-Mask': 3, 'unknown': 11}
+   183     13           unknown           unknown           unknown  
+         H:{'unknown': 13}  V:{'unknown': 13}  M:{'unknown': 13}
+   189     10         VIOLATION           unknown         VIOLATION  
+         H:{'NO-Hardhat': 10}  V:{'unknown': 9, 'NO-Safety Vest': 1}  M:{'NO-Mask': 5, 'unknown': 5}
+   180      7                ok         VIOLATION         VIOLATION  
+         H:{'Hardhat': 7}  V:{'NO-Safety Vest': 7}  M:{'NO-Mask': 7}
+   225      5         VIOLATION         VIOLATION         VIOLATION  
+         H:{'NO-Hardhat': 4, 'Hardhat': 1}  V:{'unknown': 3, 'NO-Safety Vest': 2}  M:{'unknown': 3, 'NO-Mask': 2}
+   195      3           unknown           unknown           unknown  
+         H:{'unknown': 3}  V:{'unknown': 3}  M:{'unknown': 3}
+   204      3           unknown           unknown           unknown  
+         H:{'unknown': 2, 'NO-Hardhat': 1}  V:{'unknown': 3}  M:{'unknown': 3}
+   191      2           unknown           unknown           unknown  
+         H:{'unknown': 2}  V:{'unknown': 1, 'NO-Safety Vest': 1}  M:{'unknown': 2}
+   220      2           unknown           unknown           unknown  
+         H:{'unknown': 2}  V:{'unknown': 2}  M:{'unknown': 2}
+
+  PPE       GT_ihlal    Tespit    TP    FP    FN    TN
+  ────────────────────────────────────────────────────────────
+  helmet           4         1     1     0     3     0  <- FN=3
+  vest             4         3     3     0     1     0  <- FN=1
+  mask             4         4     4     0     0     0
+  [Performans] 600 kare | 25.64 saniye | 23.4 FPS
+  Toplam kişi (>=3 obs): 21  |  Ana kişi: 4/4
+
+────────────────────────────────────────────────────────────
+  MASK  —  mask_test.mp4  (351f @ 24fps)
+  GT (1 kişi):  helmet=1  vest=0  mask=0
+  tracker=bytetrack.yaml  track_every_frame=True
+────────────────────────────────────────────────────────────
+
+    ID    Obs            Helmet              Vest              Mask  Ana?
+  ────  ─────  ────────────────  ────────────────  ────────────────  ────
+   259    117         VIOLATION                ok                ok   <-
+         H:{'unknown': 3, 'NO-Hardhat': 25, 'Hardhat': 2}  V:{'Safety Vest': 30}  M:{'Mask': 30}
+
+  PPE       GT_ihlal    Tespit    TP    FP    FN    TN
+  ────────────────────────────────────────────────────────────
+  helmet           1         1     1     0     0     0
+  vest             0         0     0     0     0     1
+  mask             0         0     0     0     0     1
+  [Performans] 351 kare | 15.63 saniye | 22.5 FPS
+  Toplam kişi (>=3 obs): 1  |  Ana kişi: 1/1
+
+────────────────────────────────────────────────────────────
+  INTEL  —  intel_safety_full.mp4  (1950f @ 30fps)
+  GT (3 kişi):  helmet=1  vest=1  mask=SKIP
+  tracker=bytetrack.yaml  track_every_frame=True
+────────────────────────────────────────────────────────────
+
+    ID    Obs            Helmet              Vest              Mask  Ana?
+  ────  ─────  ────────────────  ────────────────  ────────────────  ────
+   261    640         VIOLATION           unknown         VIOLATION   <-
+         H:{'NO-Hardhat': 6, 'unknown': 23, 'Hardhat': 1}  V:{'unknown': 29, 'Safety Vest': 1}  M:{'unknown': 29, 'NO-Mask': 1}
+   301    101                ok                ok         VIOLATION   <-
+         H:{'Hardhat': 30}  V:{'Safety Vest': 30}  M:{'NO-Mask': 29, 'unknown': 1}
+   304     82         VIOLATION                ok         VIOLATION   <-
+         H:{'unknown': 14, 'NO-Hardhat': 15, 'Hardhat': 1}  V:{'Safety Vest': 28, 'unknown': 1, 'NO-Safety Vest': 1}  M:{'NO-Mask': 27, 'unknown': 3}
+   266     81                ok                ok         VIOLATION  
+         H:{'Hardhat': 30}  V:{'Safety Vest': 30}  M:{'NO-Mask': 29, 'unknown': 1}
+   306     81                ok         VIOLATION         VIOLATION  
+         H:{'Hardhat': 30}  V:{'NO-Safety Vest': 28, 'unknown': 2}  M:{'NO-Mask': 29, 'unknown': 1}
+   365     80                ok                ok         VIOLATION  
+         H:{'Hardhat': 30}  V:{'Safety Vest': 30}  M:{'NO-Mask': 30}
+   284     76         VIOLATION         VIOLATION         VIOLATION  
+         H:{'unknown': 11, 'NO-Hardhat': 19}  V:{'NO-Safety Vest': 26, 'unknown': 4}  M:{'NO-Mask': 28, 'unknown': 2}
+   286     61                ok                ok         VIOLATION  
+         H:{'Hardhat': 30}  V:{'Safety Vest': 29, 'unknown': 1}  M:{'NO-Mask': 29, 'unknown': 1}
+   263     12           unknown           unknown           unknown  
+         H:{'unknown': 12}  V:{'unknown': 12}  M:{'unknown': 12}
+   275     12           unknown           unknown           unknown  
+         H:{'unknown': 12}  V:{'unknown': 12}  M:{'unknown': 12}
+   290      7           unknown           unknown           unknown  
+         H:{'unknown': 7}  V:{'unknown': 7}  M:{'unknown': 7}
+   364      6           unknown           unknown           unknown  
+         H:{'unknown': 6}  V:{'unknown': 6}  M:{'unknown': 6}
+   300      5           unknown           unknown           unknown  
+         H:{'unknown': 5}  V:{'unknown': 5}  M:{'unknown': 5}
+   264      3           unknown           unknown           unknown  
+         H:{'unknown': 3}  V:{'unknown': 3}  M:{'unknown': 3}
+   285      3           unknown           unknown           unknown  
+         H:{'unknown': 3}  V:{'unknown': 3}  M:{'unknown': 3}
+   269      2           unknown                ok         VIOLATION  
+         H:{'unknown': 2}  V:{'Safety Vest': 2}  M:{'unknown': 1, 'NO-Mask': 1}
+   308      2                ok                ok         VIOLATION  
+         H:{'Hardhat': 2}  V:{'Safety Vest': 2}  M:{'NO-Mask': 2}
+
+  PPE       GT_ihlal    Tespit    TP    FP    FN    TN
+  ────────────────────────────────────────────────────────────
+  helmet           1         2     1     1     0     1  <- FP=1
+  vest             1         0     0     0     1     2  <- FN=1
+  mask          SKIP      SKIP  SKIP  SKIP  SKIP  SKIP
+  [Performans] 1950 kare | 93.38 saniye | 20.9 FPS
+  Toplam kişi (>=3 obs): 17  |  Ana kişi: 3/3
+
+────────────────────────────────────────────────────────────
+  KARAM  —  github_hardhat.mp4  (1826f @ 30fps)
+  GT (1 kişi):  helmet=1  vest=1  mask=1
+  tracker=bytetrack.yaml  track_every_frame=True
+────────────────────────────────────────────────────────────
+
+    ID    Obs            Helmet              Vest              Mask  Ana?
+  ────  ─────  ────────────────  ────────────────  ────────────────  ────
+   377    102                ok         VIOLATION         VIOLATION   <-
+         H:{'Hardhat': 10, 'unknown': 20}  V:{'NO-Safety Vest': 6, 'unknown': 24}  M:{'NO-Mask': 18, 'unknown': 12}
+   387     52                ok         VIOLATION         VIOLATION  
+         H:{'Hardhat': 30}  V:{'NO-Safety Vest': 21, 'unknown': 9}  M:{'NO-Mask': 30}
+   394     51                ok         VIOLATION         VIOLATION  
+         H:{'Hardhat': 13, 'unknown': 13, 'NO-Hardhat': 4}  V:{'unknown': 15, 'NO-Safety Vest': 15}  M:{'unknown': 29, 'NO-Mask': 1}
+   422     33                ok                ok         VIOLATION  
+         H:{'Hardhat': 30}  V:{'Safety Vest': 21, 'NO-Safety Vest': 3, 'unknown': 6}  M:{'unknown': 22, 'NO-Mask': 8}
+   391     32                ok         VIOLATION         VIOLATION  
+         H:{'Hardhat': 30}  V:{'NO-Safety Vest': 10, 'unknown': 17, 'Safety Vest': 3}  M:{'NO-Mask': 30}
+   412     27                ok         VIOLATION         VIOLATION  
+         H:{'Hardhat': 26, 'unknown': 1}  V:{'unknown': 17, 'NO-Safety Vest': 10}  M:{'unknown': 20, 'NO-Mask': 7}
+   435     22                ok         VIOLATION         VIOLATION  
+         H:{'unknown': 1, 'Hardhat': 21}  V:{'unknown': 19, 'NO-Safety Vest': 3}  M:{'unknown': 7, 'NO-Mask': 15}
+   437     18                ok         VIOLATION         VIOLATION  
+         H:{'Hardhat': 18}  V:{'NO-Safety Vest': 18}  M:{'NO-Mask': 10, 'unknown': 8}
+   371     16                ok           unknown           unknown  
+         H:{'Hardhat': 16}  V:{'unknown': 16}  M:{'unknown': 16}
+   378     16         VIOLATION         VIOLATION         VIOLATION  
+         H:{'unknown': 4, 'NO-Hardhat': 12}  V:{'unknown': 3, 'NO-Safety Vest': 13}  M:{'unknown': 1, 'NO-Mask': 15}
+   419     16                ok         VIOLATION         VIOLATION  
+         H:{'Hardhat': 13, 'unknown': 3}  V:{'NO-Safety Vest': 4, 'unknown': 12}  M:{'NO-Mask': 13, 'unknown': 3}
+   401     14                ok         VIOLATION         VIOLATION  
+         H:{'Hardhat': 14}  V:{'unknown': 3, 'NO-Safety Vest': 11}  M:{'NO-Mask': 14}
+   408     14                ok         VIOLATION                ok  
+         H:{'Hardhat': 14}  V:{'NO-Safety Vest': 14}  M:{'unknown': 5, 'Mask': 8, 'NO-Mask': 1}
+   450     13                ok         VIOLATION           unknown  
+         H:{'Hardhat': 13}  V:{'unknown': 9, 'NO-Safety Vest': 4}  M:{'unknown': 13}
+   455     13                ok           unknown           unknown  
+         H:{'Hardhat': 13}  V:{'unknown': 13}  M:{'unknown': 13}
+   392     11                ok         VIOLATION           unknown  
+         H:{'Hardhat': 11}  V:{'NO-Safety Vest': 10, 'unknown': 1}  M:{'unknown': 11}
+   409     11           unknown           unknown         VIOLATION  
+         H:{'unknown': 11}  V:{'unknown': 11}  M:{'unknown': 8, 'NO-Mask': 3}
+   410     11                ok         VIOLATION         VIOLATION  
+         H:{'Hardhat': 11}  V:{'NO-Safety Vest': 11}  M:{'unknown': 7, 'NO-Mask': 4}
+   416     11                ok           unknown         VIOLATION  
+         H:{'Hardhat': 11}  V:{'unknown': 10, 'NO-Safety Vest': 1}  M:{'NO-Mask': 2, 'unknown': 9}
+   393      9           unknown           unknown           unknown  
+         H:{'unknown': 9}  V:{'unknown': 9}  M:{'unknown': 9}
+   383      5         VIOLATION           unknown           unknown  
+         H:{'unknown': 3, 'NO-Hardhat': 2}  V:{'unknown': 5}  M:{'unknown': 5}
+   421      2           unknown         VIOLATION           unknown  
+         H:{'unknown': 2}  V:{'NO-Safety Vest': 2}  M:{'unknown': 2}
+   433      2           unknown           unknown           unknown  
+         H:{'unknown': 2}  V:{'unknown': 2}  M:{'unknown': 2}
+
+  PPE       GT_ihlal    Tespit    TP    FP    FN    TN
+  ────────────────────────────────────────────────────────────
+  helmet           1         0     0     0     1     0  <- FN=1
+  vest             1         1     1     0     0     0
+  mask             1         1     1     0     0     0
+  [Performans] 1826 kare | 61.12 saniye | 29.9 FPS
+  Toplam kişi (>=3 obs): 23  |  Ana kişi: 1/1
+
+============================================================
+GENEL OZET  (kisi-PPE bazli)
+============================================================
+TP=20  TN=15  FP=2  FN=8  (toplam kisi-PPE=45)
+Accuracy : 77.8%
+Precision: 90.9%
+Recall   : 71.4%
+F1       : 80.0%
+
+  PPE         TP    TN    FP    FN   Recall     Prec
+  ──────────────────────────────────────────────────
+  helmet       5     6     1     4    55.6%    83.3%
+  vest         5     8     1     2    71.4%    83.3%
+  mask        10     1     0     2    83.3%   100.0%
+
+Kayip/hatali tespitler:
+  nohat       mask      FN=2  (kacirilan ihlal)
+  novest      vest      FP=1  (yanlis alarm)
+  noppe       helmet    FN=3  (kacirilan ihlal)
+  noppe       vest      FN=1  (kacirilan ihlal)
+  intel       helmet    FP=1  (yanlis alarm)
+  intel       vest      FN=1  (kacirilan ihlal)
+  karam       helmet    FN=1  (kacirilan ihlal)
+
+[GENEL PERFORMANS] Toplam 6053 kare | 239.84 saniye | Ortalama 25.2 FPS
+
+============================================================

@@ -1,0 +1,84 @@
+{
+  "summary": {
+    "report_type": "daily",
+    "period": {
+      "start_date": "2026-04-30",
+      "end_date": "2026-04-30"
+    },
+    "total_events": 7,
+    "violation_counts": {
+      "helmet_violation": 5,
+      "vest_violation": 1,
+      "mask_violation": 2,
+      "fire_detected": 1
+    },
+    "multi_violation_event_count": 1,
+    "location_breakdown": [
+      {
+        "camera_id": "cam_03",
+        "zone": "Üretim Hattı B",
+        "event_count": 3
+      },
+      {
+        "camera_id": "cam_02",
+        "zone": "Üretim Hattı A",
+        "event_count": 2
+      },
+      {
+        "camera_id": "cam_04",
+        "zone": "Depo",
+        "event_count": 2
+      }
+    ],
+    "repeat_summary": {
+      "total_repeat_count": 36,
+      "average_repeat_count": 5.14
+    },
+    "duration_summary": {
+      "average_duration_sec": 71.21,
+      "max_duration_sec": 141.54,
+      "min_duration_sec": 12.08
+    },
+    "hourly_distribution": [
+      {
+        "hour": "01:00",
+        "event_count": 1
+      },
+      {
+        "hour": "04:00",
+        "event_count": 1
+      },
+      {
+        "hour": "05:00",
+        "event_count": 1
+      },
+      {
+        "hour": "07:00",
+        "event_count": 1
+      },
+      {
+        "hour": "09:00",
+        "event_count": 1
+      },
+      {
+        "hour": "17:00",
+        "event_count": 1
+      },
+      {
+        "hour": "18:00",
+        "event_count": 1
+      }
+    ],
+    "comparison": {
+      "previous_period_events": 3,
+      "change_percent": 133.3,
+      "trend": "increasing"
+    },
+    "risk_summary": {
+      "risk_score": 29,
+      "normalized_score": 32.5,
+      "risk_level": "medium"
+    }
+  },
+  "llm_text": "**Genel Değerlendirme**  \n2026-04-30 tarihli günlük güvenlik izleme sistemi verilerine göre toplam 7 ihlal tespit edilmiştir. Risk skoru 29 olarak belirlenmiş, normalize skor ise 32.5/100 ile orta risk seviyesinde yer almaktadır. Bu dönem boyunca en fazla ihlal türü olarak baret ihlali (helmet_violation) 5 olay ile kayıtlı olup, diğer ihlallerin dağılımı şu şekildedir: güvenlik yeleği ihlali (vest_violation) 1, maske ihlali (mask_violation) 2 ve yangın tespiti (fire_detected) 1 olay şeklinde gerçekleşmiştir.  \n\n**Kritik Bulgular**  \nEn yüksek ihlal türü baret ihlali (helmet_violation) ile belirlenmiş olup, 5 olay olarak kaydedilmiştir. Bu ihlallerin yoğunluğu Üretim Hattı B / cam_03 bölgesinden kaynaklanmaktadır. Bu bölgeye ait 3 olay, toplam ihlal sayısının %42.86'sini oluşturmaktadır. Ayrıca, 17 olaydan 27'ye çıkmasıyla (59% artışı) baret ihlali türü, önceki döneme göre %133.3 artış göstermiştir.  \n\n**Trend Analizi**  \nİhlal sayısı önceki dönemden (3 olay) 133.3% artarak 7 olaya ulaşmıştır. Bu artış, özellikle Üretim Hattı B / cam_03 bölgesinden kaynaklanan 3 olay ve baret ihlali türüne ait 5 olay ile açıklanmaktadır. Bu durum, bu bölgede çalışanların koruyucu ekipman kullanımı eksikliğinin devam ettiğini ve risk seviyesinin arttığını göstermektedir.  \n\n**Eylem Önerileri**  \n1. **Üretim Hattı B / cam_03** bölgesine ait 3 olay ve baret ihlali türüne ait 5 olay göz önünde bulundurularak, bu bölgeye yönelik koruyucu ekipman kullanımı kontrolü artırılmalı ve çalışanlara hatırlatıcı duyurular yapılmalıdır.  \n2. **Üretim Hattı A / cam_02** bölgesinden 2 olay kaydedilmesi nedeniyle, bu bölgede güvenlik ekipmanlarının kontrolü ve çalışanların ekipman kullanımı eğitimleri tekrar değerlendirilmelidir.  \n3. **Depo / cam_04** bölgesinden 2 olay tespiti yapılmıştır. Bu bölgeye ait güvenlik protokollerinin gözden geçirilmesi ve ekipman kontrolünün artırılması önerilmektedir."
+}

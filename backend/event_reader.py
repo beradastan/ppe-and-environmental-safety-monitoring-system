@@ -12,9 +12,9 @@ import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-# evt_0001_new.json / evt_0001_update_03.jpg / evt_0001_resolved.json
+# evt_0001_new.json / evt_0001_update_03.jpg / evt_0001_closed.json
 _FILENAME_RE = re.compile(
-    r"^(evt_\d+)_(new|update_(\d+)|resolved)\.(json|jpg)$"
+    r"^(evt_\d+)_(new|update_(\d+)|closed)\.(json|jpg)$"
 )
 _EVENT_ID_RE = re.compile(r"^evt_\d+$")
 
@@ -26,8 +26,8 @@ def parse_filename(filename: str) -> dict | None:
     event_id, raw_status, update_num_str, ext = m.group(1), m.group(2), m.group(3), m.group(4)
     if raw_status == "new":
         status, update_num = "new", None
-    elif raw_status == "resolved":
-        status, update_num = "resolved", None
+    elif raw_status == "closed":
+        status, update_num = "closed", None
     else:
         status, update_num = "update", int(update_num_str)
     return {"event_id": event_id, "status": status, "update_num": update_num, "ext": ext}
@@ -60,6 +60,8 @@ def _build_event_summary(event_id: str, data: dict, latest_path: Path) -> dict:
         "signature":    data.get("signature", {}),
         "llm_report":   data.get("llm_report"),
         "has_image":    has_image,
+        "camera_id":    data.get("camera_id"),
+        "zone":         data.get("zone"),
     }
 
 

@@ -53,6 +53,18 @@ export function fetchReports(period, date) {
   return _get('/api/reports?' + params.toString())
 }
 
+export function fetchReportSummary(period, date) {
+  const params = new URLSearchParams({ period })
+  if (date) params.set('date', date)
+  return _get('/api/reports/summary?' + params.toString())
+}
+
+export function generateReportLLM(period, date) {
+  const params = new URLSearchParams({ period })
+  if (date) params.set('date', date)
+  return _post('/api/reports/summary/llm?' + params.toString(), {})
+}
+
 export function fetchConfig() {
   return _get('/api/config')
 }
@@ -69,8 +81,8 @@ export function fetchPipelineStatus() {
   return _get('/api/pipeline/status')
 }
 
-export function startPipeline(source) {
-  return _post('/api/pipeline/start', { source })
+export function startPipeline({ source, camera_id = '', zone = '' }) {
+  return _post('/api/pipeline/start', { source, camera_id, zone })
 }
 
 export function stopPipeline() {

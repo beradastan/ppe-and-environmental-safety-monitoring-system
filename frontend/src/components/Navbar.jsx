@@ -4,8 +4,8 @@ const TABS = [
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'alerts',    label: 'Alarmlar'  },
   { id: 'reports',   label: 'Raporlar'  },
+  { id: 'camera',    label: 'Kamera'    },
   { id: 'settings',  label: 'Ayarlar'   },
-  { id: 'demo',      label: 'Demo'      },
 ]
 
 export default function Navbar({ page, onNavigate, activeAlarms = 0 }) {

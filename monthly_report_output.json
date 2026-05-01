@@ -1,0 +1,82 @@
+{
+  "summary": {
+    "report_type": "monthly",
+    "period": {
+      "start_date": "2026-04-01",
+      "end_date": "2026-04-30"
+    },
+    "total_events": 146,
+    "violation_counts": {
+      "helmet_violation": 101,
+      "vest_violation": 19,
+      "mask_violation": 44,
+      "fire_detected": 4
+    },
+    "weekly_breakdown": [
+      {
+        "week": "2026-W14",
+        "event_count": 16
+      },
+      {
+        "week": "2026-W15",
+        "event_count": 40
+      },
+      {
+        "week": "2026-W16",
+        "event_count": 33
+      },
+      {
+        "week": "2026-W17",
+        "event_count": 38
+      },
+      {
+        "week": "2026-W18",
+        "event_count": 19
+      }
+    ],
+    "top_violation_type": "helmet_violation",
+    "multi_violation_event_count": 21,
+    "location_breakdown": [
+      {
+        "camera_id": "cam_04",
+        "zone": "Depo",
+        "event_count": 40
+      },
+      {
+        "camera_id": "cam_01",
+        "zone": "Giriş",
+        "event_count": 37
+      },
+      {
+        "camera_id": "cam_02",
+        "zone": "Üretim Hattı A",
+        "event_count": 35
+      },
+      {
+        "camera_id": "cam_03",
+        "zone": "Üretim Hattı B",
+        "event_count": 34
+      }
+    ],
+    "duration_summary": {
+      "average_duration_sec": 100.17,
+      "max_duration_sec": 177.35,
+      "min_duration_sec": 10.98
+    },
+    "repeat_summary": {
+      "total_repeat_count": 870,
+      "average_repeat_count": 5.96
+    },
+    "comparison": {
+      "previous_period_events": 0,
+      "change_percent": null,
+      "trend": "no_data"
+    },
+    "risk_summary": {
+      "risk_score": 425,
+      "normalized_score": 91.2,
+      "risk_level": "critical"
+    }
+  },
+  "llm_text": "**Genel Değerlendirme**  \n2026-04-01 ile 2026-04-30 tarihleri arasında toplam 146 ihlal olayı kaydedilmiştir. Risk skoru 425 olarak belirlenmiş, normalize skor ise 91.2/100 ile \"critical\" seviyesinde bulunmuştur. Bu dönemde en yoğun ihlal türü \"helmet_violation\" (101 olay) olarak kaydedilirken, 21 olayda birden fazla ihlal türü birlikte tespit edilmiştir. Ortalama olay süresi 100.17 saniye, en uzun olay süresi ise 177.35 saniye olarak belirlenmiştir.  \n\n**Kritik Bulgular**  \n- **En yüksek ihlal türü:** \"helmet_violation\" (101 olay) olup, bu türün \"mask_violation\" (44 olay) ve \"vest_violation\" (19 olay) göre 17'den 27'ye çıkmış (+59%) artış göstermiştir.  \n- **En kritik lokasyon:** \"Depo / cam_04\" (40 olay) olarak tespit edilmiştir. Bu bölge, toplam olayların %27'sini oluşturmaktadır.  \n- **Haftalık dağılım:** 2026-W15 haftasında 40 olay kaydedilerek, bu dönem içinde en yüksek olay yoğunluğuna sahip hafta olarak belirlenmiştir.  \n\n**Eylem Önerileri**  \n1. **Depo / cam_04** bölgesindeki \"helmet_violation\" ihlallerinin azaltılması için, bu bölgede sürekli gözlem ve eğitim faaliyetleri artırılmalıdır.  \n2. **Üretim Hattı A / cam_02** ve **Üretim Hattı B / cam_03** bölgelerindeki 35 ve 34 olay yoğunluğu, çalışanların güvenlik ekipmanlarının kullanımı konusunda düzenli denetimlerle azaltılmalıdır.  \n3. **cam_04** kamera tarafından tespit edilen 40 olay, ortalama 100.17 saniye süren ihlallerin çözümü için sistem optimize edilmesi ve erken uyarı mekanizmalarının geliştirilmesi önerilir."
+}

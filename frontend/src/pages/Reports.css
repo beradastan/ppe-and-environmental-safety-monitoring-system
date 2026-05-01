@@ -4,9 +4,10 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 18px;
 }
 
+/* ── Header ── */
 .rp-header {
   display: flex;
   align-items: center;
@@ -44,9 +45,10 @@
 }
 .rp-date-input:focus { outline: none; border-color: #4d8ef0; }
 
+/* ── İhlal özet kartlar ── */
 .rp-summary {
   display: flex;
-  gap: 14px;
+  gap: 12px;
 }
 .rp-sum-card {
   flex: 1;
@@ -70,14 +72,117 @@
   letter-spacing: 0.06em;
 }
 
+/* ── Risk / Trend / Lokasyon sıra ── */
+.rp-info-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.rp-info-card {
+  background: #141428;
+  border: 1px solid #2a2a3e;
+  border-radius: 10px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 120px;
+}
+.rp-info-label {
+  font-size: 0.7rem;
+  color: #7a8aa0;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 600;
+}
+.rp-info-placeholder {
+  color: #3a3a5e;
+  font-size: 1.2rem;
+  margin-top: 8px;
+}
+
+/* Risk kartı */
+.rp-risk-badge {
+  display: inline-block;
+  font-size: 1rem;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 20px;
+  border: 1px solid;
+  width: fit-content;
+}
+.rp-risk-bar-wrap {
+  width: 100%;
+  height: 5px;
+  background: #2a2a4e;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.rp-risk-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+.rp-risk-score {
+  font-size: 1.3rem;
+  font-weight: 800;
+  line-height: 1;
+}
+.rp-risk-score span { font-size: 0.75rem; color: #7a8aa0; font-weight: 400; margin-left: 2px; }
+
+/* Trend kartı */
+.rp-trend-icon {
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1;
+}
+.rp-trend-pct {
+  font-size: 1.4rem;
+  font-weight: 800;
+  line-height: 1;
+}
+.rp-trend-sub {
+  font-size: 0.75rem;
+  color: #7a8aa0;
+  margin-top: 2px;
+}
+.rp-trend-sub strong { color: #c0cde0; }
+.rp-trend-nodata {
+  font-size: 0.82rem;
+  color: #3a3a6e;
+  margin-top: auto;
+  margin-bottom: auto;
+}
+
+/* Lokasyon kartı */
+.rp-loc-zone {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #c0cde0;
+}
+.rp-loc-cam {
+  font-size: 0.75rem;
+  color: #7a8aa0;
+}
+.rp-loc-count {
+  font-size: 0.82rem;
+  color: #7a8aa0;
+  margin-top: 4px;
+}
+.rp-loc-count span {
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: #4da6ff;
+  margin-right: 4px;
+}
+
+/* ── Grafik paneli ── */
 .rp-chart-panel {
   background: #141428;
   border: 1px solid #2a2a3e;
   border-radius: 10px;
   padding: 20px;
-  flex: 1;
 }
-
 .rp-loading {
   display: flex;
   align-items: center;
@@ -85,4 +190,94 @@
   height: 200px;
   color: #7a8aa0;
   font-size: 0.9rem;
+}
+.rp-section-title {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #7a8aa0;
+  font-weight: 600;
+  margin-bottom: 14px;
+  display: block;
+}
+
+/* ── Bölge dağılımı ── */
+.rp-loc-list { display: flex; flex-direction: column; gap: 10px; }
+.rp-loc-row {
+  display: grid;
+  grid-template-columns: 180px 1fr 40px;
+  align-items: center;
+  gap: 12px;
+}
+.rp-loc-row-label { display: flex; flex-direction: column; }
+.rp-loc-row-zone { font-size: 0.82rem; color: #c0cde0; font-weight: 600; }
+.rp-loc-row-cam  { font-size: 0.7rem; color: #7a8aa0; }
+.rp-loc-row-bar-wrap {
+  height: 6px;
+  background: #2a2a4e;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.rp-loc-row-bar-fill {
+  height: 100%;
+  background: #4da6ff;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+.rp-loc-row-count { font-size: 0.82rem; color: #c0cde0; font-weight: 700; text-align: right; }
+
+/* ── LLM Raporu ── */
+.rp-llm-panel {
+  background: #141428;
+  border: 1px solid #2a2a3e;
+  border-radius: 10px;
+  padding: 20px;
+}
+.rp-llm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.rp-llm-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #1a2a4a;
+  border: 1px solid #2a4a7a;
+  color: #4da6ff;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 7px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+  font-family: inherit;
+}
+.rp-llm-btn:hover:not(:disabled) { background: #1e3460; }
+.rp-llm-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.rp-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid #4da6ff44;
+  border-top-color: #4da6ff;
+  border-radius: 50%;
+  animation: rp-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes rp-spin { to { transform: rotate(360deg); } }
+
+.rp-llm-text {
+  font-size: 0.88rem;
+  line-height: 1.75;
+  color: #c0cde0;
+  white-space: pre-wrap;
+}
+.rp-llm-text strong { color: #e0e8f0; }
+
+.rp-llm-empty {
+  font-size: 0.82rem;
+  color: #3a3a6e;
+  padding: 10px 0;
 }

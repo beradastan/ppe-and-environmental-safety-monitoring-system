@@ -7,7 +7,7 @@
 CREATE TABLE IF NOT EXISTS events (
     id               SERIAL       PRIMARY KEY,
     event_id         VARCHAR(20)  UNIQUE NOT NULL,   -- evt_0001
-    event_status     VARCHAR(20)  NOT NULL,           -- new | active | update | resolved
+    event_status     VARCHAR(20)  NOT NULL,           -- new | active | update | closed
     created_at       TIMESTAMPTZ  NOT NULL,           -- ilk "new" zamanı
     updated_at       TIMESTAMPTZ  NOT NULL,           -- son güncelleme
     repeat_count     INT          NOT NULL DEFAULT 0,
@@ -52,6 +52,8 @@ CREATE TABLE IF NOT EXISTS event_notes (
 -- Mevcut tablolara kolon ekle (tablo zaten varsa CREATE TABLE IF NOT EXISTS atlanır)
 ALTER TABLE events          ADD COLUMN IF NOT EXISTS persons JSONB;
 ALTER TABLE event_timeline  ADD COLUMN IF NOT EXISTS persons JSONB;
+ALTER TABLE events          ADD COLUMN IF NOT EXISTS camera_id VARCHAR(20);
+ALTER TABLE events          ADD COLUMN IF NOT EXISTS zone      VARCHAR(50);
 
 -- İndeksler
 CREATE INDEX IF NOT EXISTS idx_events_status      ON events(event_status);

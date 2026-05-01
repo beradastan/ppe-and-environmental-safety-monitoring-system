@@ -161,7 +161,7 @@ RESULTS_DIR  = (PROJECT_ROOT / _config.get("results_dir", "results")).resolve()
 # ---------------------------------------------------------------------------
 
 _EVENT_ID_RE = re.compile(r"^evt_\d+$")
-_FILENAME_RE = re.compile(r"^evt_\d+_(new|update_\d+|resolved)\.jpg$")
+_FILENAME_RE = re.compile(r"^evt_\d+_(new|update_\d+|closed)\.jpg$")
 _PERIOD_RE   = re.compile(r"^(daily|weekly|monthly)$")
 _DATE_RE     = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _VT_RE       = re.compile(r"^(helmet|vest|mask|fire)$")
@@ -255,34 +255,105 @@ def api_get_reports():
     return jsonify({"period": period, "data": data})
 
 
-@app.route("/api/events/<event_id>/llm", methods=["PATCH"])
-def api_patch_llm(event_id: str):
+def _summary_date_range(period: str, date_str: str | None):
+    from datetime import date as _date, timedelta
+    today = _date.today()
+    if period == "daily":
+        d = _date.fromisoformat(date_str) if date_str else today
+        return d.isoformat(), d.isoformat()
+    if period == "weekly":
+        end = today
+        return (today - timedelta(days=6)).isoformat(), end.isoformat()
+    end = today
+    return (today - timedelta(days=29)).isoformat(), end.isoformat()
+
+
+@app.route("/api/reports/summary")
+def api_get_report_summary():
+    period   = request.args.get("period", "weekly")
+    date_str = request.args.get("date", "") or None
+    if not _PERIOD_RE.match(period):
+        abort(400, "period: daily|weekly|monthly")
+    if date_str and not _DATE_RE.match(date_str):
+        abort(400, "date: YYYY-MM-DD")
+
+    if not _USE_DB:
+        return jsonify({"error": "summary requires database mode"}), 503
+
+    start, end = _summary_date_range(period, date_str)
+
+    from backend.database.reader import get_events_for_summary
+    from backend.reports.services import EventAnalyticsService, ReportSummaryService
+
+    events   = get_events_for_summary(start, end)
+    analytics = EventAnalyticsService(events)
+    svc      = ReportSummaryService(analytics)
+
+    if period == "daily":
+        summary = svc.generate_daily_summary(start)
+    elif period == "weekly":
+        summary = svc.generate_weekly_summary(start, end)
+    else:
+        summary = svc.generate_monthly_summary(start, end)
+
+    return jsonify(summary)
+
+
+@app.route("/api/reports/summary/llm", methods=["POST"])
+def api_generate_report_llm():
+    import threading as _threading
+    period   = request.args.get("period", "weekly")
+    date_str = request.args.get("date", "") or None
+    if not _PERIOD_RE.match(period):
+        abort(400, "period: daily|weekly|monthly")
+
+    if not _USE_DB:
+        return jsonify({"error": "requires database mode"}), 503
+
+    start, end = _summary_date_range(period, date_str)
+
+    from backend.database.reader import get_events_for_summary
+    from backend.reports.services import EventAnalyticsService, ReportSummaryService
+    from llm.safety_report_agent import SafetyReportAgent
+
+    events    = get_events_for_summary(start, end)
+    analytics = EventAnalyticsService(events)
+    svc       = ReportSummaryService(analytics)
+
+    if period == "daily":
+        summary = svc.generate_daily_summary(start)
+    elif period == "weekly":
+        summary = svc.generate_weekly_summary(start, end)
+    else:
+        summary = svc.generate_monthly_summary(start, end)
+
+    def _run(summary_data, p, d):
+        try:
+            text = SafetyReportAgent().generate_report(summary_data)
+            socketio.emit("report_llm_ready", {"period": p, "date": d or "", "llm_text": text})
+        except Exception as exc:
+            logger.error("LLM rapor hatasi: %s", exc)
+            socketio.emit("report_llm_error", {"period": p, "date": d or "", "error": str(exc)})
+
+    _threading.Thread(target=_run, args=(summary, period, date_str), daemon=True).start()
+    return jsonify({"ok": True, "pending": True})
+
+
+@app.route("/api/events/<event_id>/close", methods=["PATCH"])
+def api_close_event(event_id: str):
     if not _EVENT_ID_RE.match(event_id):
         abort(400, "Geçersiz event_id.")
-    body   = request.get_json(silent=True) or {}
-    report = str(body.get("llm_report", "")).strip()
-    if not report:
-        abort(400, "llm_report boş olamaz.")
     if _USE_DB:
-        from backend.database.writer import update_llm_report
-        update_llm_report(event_id, report)
-    socketio.emit("llm_updated", {"event_id": event_id, "llm_report": report})
+        from backend.database.writer import close_event
+        close_event(event_id)
+    socketio.emit("event_closed", {"event_id": event_id})
     return jsonify({"ok": True})
 
 
-@app.route("/api/events/<event_id>/resolve", methods=["PATCH"])
-def api_resolve_event(event_id: str):
-    if not _EVENT_ID_RE.match(event_id):
-        abort(400, "Geçersiz event_id.")
-    if _USE_DB:
-        from backend.database.writer import resolve_event
-        resolve_event(event_id)
-    socketio.emit("event_resolved", {"event_id": event_id})
-    return jsonify({"ok": True})
-
-
-_pipeline_proc:   "_subprocess.Popen | None" = None
-_pipeline_source: str = ""
+_pipeline_proc:      "_subprocess.Popen | None" = None
+_pipeline_source:    str = ""
+_pipeline_camera_id: str = ""
+_pipeline_zone:      str = ""
 _STREAM_FRAME_PATH = _os.path.join(_tempfile.gettempdir(), "factory_safety_stream.jpg")
 _VIDEO_EXTS = {'.mp4', '.avi', '.mov', '.mkv', '.webm'}
 
@@ -293,7 +364,12 @@ def api_pipeline_status():
     running = _pipeline_proc is not None and _pipeline_proc.poll() is None
     if not running:
         _pipeline_proc = None
-    return jsonify({"running": running, "source": _pipeline_source if running else ""})
+    return jsonify({
+        "running":   running,
+        "source":    _pipeline_source    if running else "",
+        "camera_id": _pipeline_camera_id if running else "",
+        "zone":      _pipeline_zone      if running else "",
+    })
 
 
 @app.route("/api/pipeline/browse")
@@ -319,11 +395,13 @@ def api_pipeline_browse():
 
 @app.route("/api/pipeline/start", methods=["POST"])
 def api_pipeline_start():
-    global _pipeline_proc, _pipeline_source
+    global _pipeline_proc, _pipeline_source, _pipeline_camera_id, _pipeline_zone
     if _pipeline_proc is not None and _pipeline_proc.poll() is None:
         return jsonify({"ok": False, "error": "Pipeline zaten calisiyor."})
-    body   = request.get_json(silent=True) or {}
-    source = str(body.get("source", "")).strip()
+    body      = request.get_json(silent=True) or {}
+    source    = str(body.get("source", "")).strip()
+    camera_id = str(body.get("camera_id", "")).strip()
+    zone      = str(body.get("zone", "")).strip()
     if not source:
         abort(400, "Kaynak belirtilmedi.")
     try:
@@ -344,21 +422,28 @@ def api_pipeline_start():
         if src_path.suffix.lower() not in _VIDEO_EXTS:
             abort(400, "Desteklenmeyen video formati.")
         cmd += ["--video", str(src_path)]
-    _pipeline_proc   = _subprocess.Popen(cmd, cwd=str(PROJECT_ROOT))
-    _pipeline_source = source
+    if camera_id:
+        cmd += ["--camera-id", camera_id]
+    if zone:
+        cmd += ["--zone", zone]
+    _pipeline_proc      = _subprocess.Popen(cmd, cwd=str(PROJECT_ROOT))
+    _pipeline_source    = source
+    _pipeline_camera_id = camera_id
+    _pipeline_zone      = zone
     return jsonify({"ok": True})
 
 
 @app.route("/api/pipeline/stop", methods=["POST"])
 def api_pipeline_stop():
-    global _pipeline_proc, _pipeline_source
+    global _pipeline_proc, _pipeline_source, _pipeline_camera_id, _pipeline_zone
     if _pipeline_proc is None or _pipeline_proc.poll() is not None:
-        _pipeline_proc   = None
-        _pipeline_source = ""
-        return jsonify({"ok": True})
-    _pipeline_proc.terminate()
-    _pipeline_proc   = None
-    _pipeline_source = ""
+        _pipeline_proc = None
+    else:
+        _pipeline_proc.terminate()
+        _pipeline_proc = None
+    _pipeline_source    = ""
+    _pipeline_camera_id = ""
+    _pipeline_zone      = ""
     return jsonify({"ok": True})
 
 

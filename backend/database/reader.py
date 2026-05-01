@@ -163,6 +163,45 @@ def get_stats() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Summary raporu için ham event verisi
+# ---------------------------------------------------------------------------
+
+def get_events_for_summary(start_date: str, end_date: str) -> list[dict]:
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT event_id, event_status, created_at, updated_at,
+                   repeat_count, duration_sec,
+                   helmet_violation, vest_violation, mask_violation, fire_detected,
+                   camera_id, zone
+            FROM events
+            WHERE DATE(created_at) >= %s AND DATE(created_at) <= %s
+            ORDER BY created_at ASC
+            """,
+            (start_date, end_date),
+        )
+        rows = cur.fetchall()
+
+    return [
+        {
+            "event_id":        r[0],
+            "event_status":    r[1],
+            "created_at":      _ts(r[2]),
+            "updated_at":      _ts(r[3]),
+            "repeat_count":    r[4],
+            "duration_sec":    float(r[5]),
+            "helmet_violation": r[6],
+            "vest_violation":  r[7],
+            "mask_violation":  r[8],
+            "fire_detected":   r[9],
+            "camera_id":       r[10],
+            "zone":            r[11],
+        }
+        for r in rows
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Rapor verisi
 # ---------------------------------------------------------------------------
 

@@ -11,12 +11,12 @@ function formatTime(iso) {
   }
 }
 
-export default function EventCard({ event, selected, onClick }) {
+export default function EventCard({ event, selected, onClick, viewed = false }) {
   return (
     <div className={`event-card ${selected ? 'event-card--selected' : ''}`} onClick={onClick}>
       <div className="event-card__header">
         <span className="event-card__id">{event.event_id}</span>
-        <StatusBadge status={event.event_status} />
+        <StatusBadge status={event.event_status} viewed={viewed} />
       </div>
       <div className="event-card__meta">
         <span>{formatTime(event.timestamp)}</span>

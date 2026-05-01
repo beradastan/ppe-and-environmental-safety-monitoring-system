@@ -12,9 +12,10 @@ const VIOLATION_TYPES = [
   { value: 'fire',   label: 'Yangın'       },
 ]
 const STATUSES = [
-  { value: '',       label: 'Tüm durumlar' },
-  { value: 'new',    label: 'Yeni'          },
-  { value: 'active', label: 'Aktif'         },
+  { value: '',        label: 'Tüm durumlar' },
+  { value: 'new',     label: 'Yeni'         },
+  { value: 'active',  label: 'Aktif'        },
+  { value: 'closed',  label: 'Kapalı'       },
 ]
 
 export default function AlertHistory({ initialSelectedId, onEventSelect, socket }) {
@@ -25,7 +26,8 @@ export default function AlertHistory({ initialSelectedId, onEventSelect, socket 
   const [listLoading, setListLoading] = useState(true)
   const [detailLoading, setDetailLoading] = useState(false)
 
-  const [filters, setFilters] = useState({ date: '', violation_type: '', status: '' })
+  const [filters, setFilters]   = useState({ date: '', violation_type: '', status: '' })
+  const [viewedIds, setViewedIds] = useState(() => new Set())
 
   const loadEvents = useCallback((f = filters) => {
     setListLoading(true)
@@ -66,12 +68,12 @@ export default function AlertHistory({ initialSelectedId, onEventSelect, socket 
     return () => socket.off('llm_updated', onLlmUpdated)
   }, [socket, selectedId, loadTimeline])
 
-  // Event resolve olduğunda listeyi yenile
+  // Event kapandığında listeyi yenile
   useEffect(() => {
     if (!socket) return
-    function onResolved() { loadEvents(filters) }
-    socket.on('event_resolved', onResolved)
-    return () => socket.off('event_resolved', onResolved)
+    function onClosed() { loadEvents(filters) }
+    socket.on('event_closed', onClosed)
+    return () => socket.off('event_closed', onClosed)
   }, [socket, filters])
 
   // Dışarıdan seçim gelirse (Dashboard → Alerts)
@@ -87,6 +89,7 @@ export default function AlertHistory({ initialSelectedId, onEventSelect, socket 
     setNotes([])
     loadTimeline(id)
     onEventSelect?.(id)
+    setViewedIds(prev => { const s = new Set(prev); s.add(id); return s })
   }
 
   function handleFilterChange(key, val) {
@@ -137,6 +140,7 @@ export default function AlertHistory({ initialSelectedId, onEventSelect, socket 
           selectedId={selectedId}
           onSelect={handleSelect}
           loading={listLoading}
+          viewedIds={viewedIds}
         />
       </div>
 

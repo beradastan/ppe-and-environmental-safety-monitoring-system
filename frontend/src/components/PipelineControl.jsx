@@ -42,7 +42,7 @@ export default function PipelineControl() {
     if (!sourcePath.trim()) return
     setBusy(true)
     try {
-      const res = await startPipeline(sourcePath.trim())
+      const res = await startPipeline({ source: sourcePath.trim() })
       if (res.ok) setRunning(true)
       else alert(res.error || 'Başlatılamadı.')
     } catch (e) {

@@ -68,136 +68,8 @@ def _build_alarm_text(event_type: str, persons: list[dict]) -> str:
     return f"PPE ihlali: {ppe_str}."
 
 
-def _load_llm_cfg() -> dict:
-    try:
-        with open("config.yaml", encoding="utf-8") as f:
-            return (yaml.safe_load(f) or {}).get("llm", {})
-    except Exception:
-        return {}
-
-
-_llm_threads: list[threading.Thread] = []  # pipeline bitince join için
-
-_LLM_SYSTEM = (
-    "Sen deneyimli bir fabrika iş güvenliği uzmanısın.\n"
-    "Sana verilen ihlal verisini analiz et ve akıcı, profesyonel Türkçe ile "
-    "2-3 cümlelik bir güvenlik raporu yaz.\n\n"
-    "YAPI:\n"
-    "- 1. cümle: Kişi #N formatında kişi ID'lerini ve eksik PPE'leri (baret/yelek/maske) belirt\n"
-    "- 2. cümle: Süreyi ve sahne bağlamını değerlendir, risk seviyesini vurgula\n"
-    "- 3. cümle: Kritik veya tekrarlayan durumlarda önerilen acil eylem\n\n"
-    "KURALLAR:\n"
-    "- Tüm PPE eksikse: 'hiçbir KKD takmıyor' ifadesini kullan\n"
-    "- Tekrar sayısı 3+: raporun başına 'Tekrarlayan ihlal:' ekle\n"
-    "- Yangın/duman varsa önce onu belirt, ardından PPE ihlalini ekle\n"
-    "- Sadece verilen verideki kişi ve ihlalleri yaz, fazladan bilgi uydurma\n"
-    "- Selamlama, özür veya 'Tabii ki' gibi dolgu ifadeler kullanma\n\n"
-    "ÖRNEK 1:\n"
-    "Veri: KKD ihlali | Kisi #2: baret=YOK | Süre: 42sn | Sahada: 4 kisi (1 ihlal)\n"
-    "Rapor: Kişi #2 baret takmıyor. "
-    "Bu ihlal 42 saniyedir devam etmekte olup sahada 4 kişiden 1'i uyumsuz durumdadır. "
-    "İlgili çalışanın derhal uyarılması gerekmektedir.\n\n"
-    "ÖRNEK 2:\n"
-    "Veri: KKD ihlali — 4. tekrar | Kisi #1: hicbir KKD yok | Kisi #5: yelek=YOK | Süre: 75sn | Sahada: 6 kisi (2 ihlal)\n"
-    "Rapor: Tekrarlayan ihlal: kişi #1 hiçbir KKD takmıyor, kişi #5 yelek takmıyor. "
-    "Bu durum 75 saniyedir sürmekte olup bölgede 4. kez alarm verilmektedir; 6 kişiden 2'si uyumsuz. "
-    "Bölge sorumlusunun acil müdahalesi ve tekrarlayan ihlallerin tutanağa geçirilmesi zorunludur.\n\n"
-    "ÖRNEK 3:\n"
-    "Veri: Çoklu tehlike | Sahne: yangin tespit edildi | Kisi #3: baret=YOK, yelek=YOK | Süre: 20sn | Sahada: 5 kisi (1 ihlal)\n"
-    "Rapor: Sahada yangın tespit edildi; aynı zamanda kişi #3 baret ve yelek takmıyor. "
-    "Yangın tehlikesi mevcut KKD eksikliğiyle birleşerek ciddi bir risk oluşturmaktadır. "
-    "Tahliye protokolü başlatılmalı ve kişi #3 güvenli bölgeye yönlendirilmelidir.\n\n"
-    "Şimdi aşağıdaki veri için yalnızca raporu yaz:"
-)
-
-
-_VIO = [
-    ("no_helmet", "baret"),
-    ("no_vest",   "yelek"),
-    ("no_mask",   "maske"),
-]
-
-
-def _build_llm_prompt(payload: dict) -> str:
-    event_type    = payload.get("event_type", "ppe_violation")
-    persons       = payload.get("persons", [])
-    scene         = payload.get("scene", {})
-    repeat_count  = int(payload.get("repeat_count", 1))
-    total_persons = int(payload.get("total_persons", len(persons)))
-    duration_sec  = float(payload.get("duration_sec", 0))
-
-    person_lines = []
-    for p in persons:
-        tid        = p["track_id"]
-        violations = p.get("violations", [])
-        if not violations:
-            continue
-        active = [v for v, _ in _VIO if v in violations]
-        if len(active) == len(_VIO):
-            person_lines.append(f"Kisi #{tid}: hicbir KKD yok")
-        else:
-            parts = [label for v, label in _VIO if v in violations]
-            person_lines.append(f"Kisi #{tid}: {', '.join(lbl + '=YOK' for lbl in parts)}")
-
-    violator_count = len(person_lines)
-    repeat_suffix  = f" — {repeat_count}. tekrar" if repeat_count > 1 else ""
-    dur_str        = f" | Süre: {int(duration_sec)}sn" if duration_sec >= 5 else ""
-    ctx_str        = f" | Sahada: {total_persons} kisi ({violator_count} ihlal)" if total_persons > 0 and violator_count > 0 else ""
-
-    scene_parts = []
-    if scene.get("fire_detected"):
-        scene_parts.append("yangin tespit edildi")
-    if scene.get("smoke_detected"):
-        scene_parts.append("duman tespit edildi")
-    scene_str = " | Sahne: " + ", ".join(scene_parts) if scene_parts else ""
-
-    if event_type == "fire_detected":
-        type_tr = "Yangin/duman"
-    elif event_type == "ppe_violation":
-        type_tr = f"KKD ihlali ({violator_count} kisi)" if violator_count > 1 else "KKD ihlali"
-    else:
-        type_tr = f"Coklu tehlike ({violator_count} kisi)" if violator_count > 1 else "Coklu tehlike"
-
-    persons_section = " | " + " | ".join(person_lines) if person_lines else ""
-    return (
-        f"Veri: {type_tr}{repeat_suffix}{dur_str}{scene_str}{ctx_str}{persons_section}\n"
-        "Rapor:"
-    )
-
-
-def _call_ollama(prompt: str, cfg: dict, system=None, _retries: int = 2):
-    body = {
-        "model":       cfg.get("model", "qwen2.5:7b"),
-        "prompt":      prompt,
-        "temperature": cfg.get("temperature", 0.3),
-        "stream":      False,
-    }
-    if system:
-        body["system"] = system
-    url = f"{cfg.get('base_url', 'http://localhost:11434')}/api/generate"
-    timeout = cfg.get("timeout", 120)
-
-    for attempt in range(1, _retries + 2):
-        try:
-            resp = requests.post(url, json=body, timeout=timeout)
-            if resp.status_code == 200:
-                raw = resp.json().get("response", "").strip()
-                raw = raw.removeprefix("Rapor:").removeprefix("Output:").strip(" \"'\n")
-                # Paragraf: satırları birleştir, boş satırları temizle
-                lines = [l.strip() for l in raw.splitlines() if l.strip()]
-                text  = " ".join(lines)
-                if text:
-                    return text
-                print(f"  [LLM] Bos yanit (deneme {attempt}), yenileniyor...")
-        except Exception as e:
-            print(f"  [LLM] Hata (deneme {attempt}): {e}")
-        if attempt <= _retries:
-            time.sleep(2)
-    return None
-
-
-def _patch_llm_report(event_id: str, report: str) -> None:
-    """Backend PATCH /api/events/<id>/llm — JSON güncelleme ayrılmış yardımcı."""
+def _close_event(event_id: str) -> None:
+    """Backend'e PATCH /api/events/<id>/close çağrısı yapar (thread-safe)."""
     try:
         with open("config.yaml", encoding="utf-8") as f:
             _b = (yaml.safe_load(f) or {}).get("backend", {})
@@ -205,71 +77,10 @@ def _patch_llm_report(event_id: str, report: str) -> None:
     except Exception:
         backend_url = "http://localhost:5050"
     try:
-        requests.patch(
-            f"{backend_url}/api/events/{event_id}/llm",
-            json={"llm_report": report},
-            timeout=5,
-        )
-        print(f"  [LLM] Backend bildirildi: {event_id}")
+        requests.patch(f"{backend_url}/api/events/{event_id}/close", timeout=5)
+        print(f"  [CLOSE] {event_id} kapatildi.")
     except Exception as e:
-        print(f"  [LLM] Backend bildirim hatasi: {e}")
-
-
-_KW_MAP = {"no_helmet": "baret", "no_vest": "yelek", "no_mask": "maske"}
-
-
-def _validate_llm_report(report: str, payload: dict) -> bool:
-    """Raporda geçen kişi ID'lerinin payload'daki gerçek kişilerden olduğunu doğrular."""
-    import re
-    persons  = payload.get("persons", [])
-    valid_ids = {p["track_id"] for p in persons}
-    mentioned = {int(m) for m in re.findall(r"#(\d+)", report)}
-    return mentioned.issubset(valid_ids)
-
-
-def _llm_report_async(payload: dict, json_path: Path, cfg: dict) -> None:
-    event_id        = payload.get("event_id", "")
-    fallback_report = payload.get("alarm_text", "")
-
-    prompt = _build_llm_prompt(payload)
-    report = _call_ollama(prompt, cfg, system=_LLM_SYSTEM)
-
-    # Validation: LLM yanlış ihlal yazdıysa fallback kullan
-    if report and not _validate_llm_report(report, payload):
-        print(f"  [LLM] Dogrulama hatasi — fallback kullaniliyor. ({report})")
-        report = None
-
-    # LLM başarısız → alarm_text fallback kullan
-    if not report:
-        print(f"  [LLM] Yanit alinamadi — fallback kullaniliyor.")
-        report = fallback_report
-
-    if report:
-        try:
-            with open(json_path, encoding="utf-8") as f:
-                data = json.load(f)
-            data["llm_report"] = report
-            with open(json_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            print(f"  [LLM] Rapor yazildi: {json_path.name} — {report}")
-        except Exception as e:
-            print(f"  [LLM] JSON yazma hatasi: {e}")
-        _patch_llm_report(event_id, report)
-
-
-def _resolve_event(event_id: str) -> None:
-    """Backend'e PATCH /api/events/<id>/resolve çağrısı yapar (thread-safe)."""
-    try:
-        with open("config.yaml", encoding="utf-8") as f:
-            _b = (yaml.safe_load(f) or {}).get("backend", {})
-        backend_url = f"http://localhost:{_b.get('port', 5050)}"
-    except Exception:
-        backend_url = "http://localhost:5050"
-    try:
-        requests.patch(f"{backend_url}/api/events/{event_id}/resolve", timeout=5)
-        print(f"  [RESOLVE] {event_id} resolve edildi.")
-    except Exception as e:
-        print(f"  [RESOLVE] Hata: {e}")
+        print(f"  [CLOSE] Hata: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -703,6 +514,8 @@ def save_event(
     fire_conf:        float = 0.0,
     smoke_detected:   bool  = False,
     smoke_conf:       float = 0.0,
+    camera_id:        str | None = None,
+    zone:             str | None = None,
 ) -> None:
     event_id     = event_info["event_id"]
     event_status = event_info["event_status"]
@@ -771,23 +584,14 @@ def save_event(
         "scene":         scene,
         "signature":     enriched_sig,
         "alarm_text":    alarm_text,
-        "llm_report":    None,
+        "camera_id":     camera_id,
+        "zone":          zone,
     }
 
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
     cv2.imwrite(str(img_path), frame)
     print(f"  [KAYIT] {event_id}/new  alarm: {alarm_text}")
-
-    llm_cfg = _load_llm_cfg()
-    if llm_cfg.get("enabled", False):
-        t = threading.Thread(
-            target=_llm_report_async,
-            args=(payload, json_path, llm_cfg),
-            daemon=False,
-        )
-        t.start()
-        _llm_threads.append(t)
 
     try:
         import winsound
@@ -1188,12 +992,14 @@ def run(args):
                     fire_conf=_fire_conf_max,
                     smoke_detected=_smoke_raw,
                     smoke_conf=_smoke_conf_max,
+                    camera_id=args.camera_id,
+                    zone=args.zone,
                 )
 
-            # Doğal ihlal bitişi: resolved geçişini DB'ye bildir (tek seferlik)
-            if event_info["event_status"] == "resolved" and event_info.get("event_id"):
+            # Doğal ihlal bitişi: closed geçişini DB'ye bildir (tek seferlik)
+            if event_info["event_status"] == "closed" and event_info.get("event_id"):
                 threading.Thread(
-                    target=_resolve_event,
+                    target=_close_event,
                     args=(event_info["event_id"],),
                     daemon=True,
                 ).start()
@@ -1221,15 +1027,9 @@ def run(args):
             cv2.destroyAllWindows()
         print(f"\nToplam frame: {frame_idx} | Kaydedilen event: {event_count}")
         print(f"Sonuclar: results/")
-        pending = [t for t in _llm_threads if t.is_alive()]
-        if pending:
-            print(f"  LLM thread'leri bekleniyor ({len(pending)} adet)...")
-            for t in pending:
-                t.join(timeout=180)
-        _llm_threads.clear()
         # Video sonu: aktif event varsa resolve et
         if event_manager._active is not None:
-            _resolve_event(event_manager._active.event_id)
+            _close_event(event_manager._active.event_id)
 
 
 # ---------------------------------------------------------------------------
@@ -1239,10 +1039,12 @@ def run(args):
 def parse_args():
     parser = argparse.ArgumentParser(description="Factory Safety — crop-based PPE pipeline")
     src = parser.add_mutually_exclusive_group()
-    src.add_argument("--video",  help="Video dosyasi yolu")
-    src.add_argument("--camera", default=0, help="Kamera indeksi (varsayilan: 0)")
-    parser.add_argument("--device",  default=_DEVICE, help="cuda device veya cpu")
-    parser.add_argument("--display", action="store_true", help="OpenCV penceresi goster (varsayilan: kapali)")
+    src.add_argument("--video",     help="Video dosyasi yolu")
+    src.add_argument("--camera",    default=0, help="Kamera indeksi (varsayilan: 0)")
+    parser.add_argument("--device",    default=_DEVICE, help="cuda device veya cpu")
+    parser.add_argument("--display",   action="store_true", help="OpenCV penceresi goster (varsayilan: kapali)")
+    parser.add_argument("--camera-id", default=None, help="Kamera kimligi (orn: cam_01)")
+    parser.add_argument("--zone",      default=None, help="Kamera bolgesi (orn: Uretim Hatti A)")
     return parser.parse_args()
 
 

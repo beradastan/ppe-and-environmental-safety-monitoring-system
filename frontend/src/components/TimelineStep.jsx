@@ -1,4 +1,3 @@
-import StatusBadge from './StatusBadge.jsx'
 import SignatureSummary from './SignatureSummary.jsx'
 import { imageUrl } from '../api.js'
 import './TimelineStep.css'
@@ -29,7 +28,6 @@ export default function TimelineStep({ step }) {
       <div className="tl-step__body">
 
         <div className="tl-step__header">
-          <StatusBadge status={event_status} />
           <span className="tl-step__time">{formatDateTime(timestamp)}</span>
           <span className="tl-step__meta">Tekrar: {repeat_count} | Süre: {duration_sec?.toFixed(1)}s</span>
         </div>

@@ -1,0 +1,61 @@
+{
+  "report_type": "weekly",
+  "period": {
+    "start_date": "2026-04-24",
+    "end_date": "2026-04-30"
+  },
+  "total_events": 27,
+  "violation_counts": {
+    "helmet_violation": 17,
+    "vest_violation": 3,
+    "mask_violation": 9,
+    "fire_detected": 1
+  },
+  "daily_breakdown": [
+    {
+      "date": "2026-04-24",
+      "event_count": 3
+    },
+    {
+      "date": "2026-04-25",
+      "event_count": 3
+    },
+    {
+      "date": "2026-04-26",
+      "event_count": 6
+    },
+    {
+      "date": "2026-04-27",
+      "event_count": 4
+    },
+    {
+      "date": "2026-04-28",
+      "event_count": 5
+    },
+    {
+      "date": "2026-04-29",
+      "event_count": 5
+    },
+    {
+      "date": "2026-04-30",
+      "event_count": 1
+    }
+  ],
+  "most_active_day": {
+    "date": "2026-04-26",
+    "event_count": 6
+  },
+  "multi_violation_event_count": 3,
+  "duration_summary": {
+    "average_duration_sec": 95.06,
+    "max_duration_sec": 174.67
+  },
+  "repeat_summary": {
+    "total_repeat_count": 131,
+    "average_repeat_count": 4.85
+  },
+  "risk_summary": {
+    "risk_score": 76,
+    "risk_level": "high"
+  }
+}

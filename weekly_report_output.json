@@ -1,0 +1,93 @@
+{
+  "summary": {
+    "report_type": "weekly",
+    "period": {
+      "start_date": "2026-04-24",
+      "end_date": "2026-04-30"
+    },
+    "total_events": 32,
+    "violation_counts": {
+      "helmet_violation": 23,
+      "vest_violation": 2,
+      "mask_violation": 14,
+      "fire_detected": 1
+    },
+    "daily_breakdown": [
+      {
+        "date": "2026-04-24",
+        "event_count": 5
+      },
+      {
+        "date": "2026-04-25",
+        "event_count": 3
+      },
+      {
+        "date": "2026-04-26",
+        "event_count": 5
+      },
+      {
+        "date": "2026-04-27",
+        "event_count": 5
+      },
+      {
+        "date": "2026-04-28",
+        "event_count": 4
+      },
+      {
+        "date": "2026-04-29",
+        "event_count": 3
+      },
+      {
+        "date": "2026-04-30",
+        "event_count": 7
+      }
+    ],
+    "most_active_day": {
+      "date": "2026-04-30",
+      "event_count": 7
+    },
+    "multi_violation_event_count": 7,
+    "location_breakdown": [
+      {
+        "camera_id": "cam_01",
+        "zone": "Giriş",
+        "event_count": 9
+      },
+      {
+        "camera_id": "cam_03",
+        "zone": "Üretim Hattı B",
+        "event_count": 8
+      },
+      {
+        "camera_id": "cam_04",
+        "zone": "Depo",
+        "event_count": 8
+      },
+      {
+        "camera_id": "cam_02",
+        "zone": "Üretim Hattı A",
+        "event_count": 7
+      }
+    ],
+    "duration_summary": {
+      "average_duration_sec": 92.87,
+      "max_duration_sec": 172.18,
+      "min_duration_sec": 12.08
+    },
+    "repeat_summary": {
+      "total_repeat_count": 180,
+      "average_repeat_count": 5.62
+    },
+    "comparison": {
+      "previous_period_events": 39,
+      "change_percent": -17.9,
+      "trend": "decreasing"
+    },
+    "risk_summary": {
+      "risk_score": 97,
+      "normalized_score": 73.5,
+      "risk_level": "high"
+    }
+  },
+  "llm_text": "**Genel Değerlendirme**  \n2026-04-24 ile 2026-04-30 tarihleri arasında toplam 32 ihlal olayı kaydedilmiştir. Risk skoru 97/100 olarak değerlendirilirken, normalize skor 73.5/100 olarak belirlenmiştir. Bu dönem boyunca en yoğun olay günü 2026-04-30 tarihi ile 7 olay kaydedilmiştir.  \n\n**Kritik Bulgular**  \nEn yüksek ihlal türü \"baret ihlali\" (helmet_violation) ile 23 olay olarak tespit edilmiştir. En kritik bölge \"Giriş / cam_01\" olarak belirlenmiş olup, bu bölgede toplam 9 olay kaydedilmiştir. Ayrıca, 7 olayda birden fazla ihlal tespit edilmiş ve bu olayların oranı toplam olayların %21.87'sini oluşturmaktadır.  \n\n**Trend Analizi**  \nGeçen hafta (39 olay) göre bu hafta ihlal sayısı %17.9 azalmıştır (23 olay). Bu düşüşün temel nedeni, baret ihlali olaylarının önceki dönemden 17'ye 27'ye çıkmış olmasıdır. Ancak, mask ihlali (14 olay) ve yangın tespiti (1 olay) gibi diğer ihlal türlerinde dengesizlikler gözlemlenmiştir.  \n\n**Eylem Önerileri**  \n1. **Giriş / cam_01** bölgesi için baret ihlali olaylarının yoğunluğu dikkat çekmektedir. Bu bölgede izleme kamera açılımı artırılmalı ve personel eğitimleri tekrar değerlendirilmelidir.  \n2. **Üretim Hattı B / cam_03** ve **Depo / cam_04** bölgelerinde 8'er olay kaydedilmesi nedeniyle, bu alanlarda güvenlik protokolleri gözden geçirilmeli ve kamera açılımı optimize edilmelidir.  \n3. **Mask ihlali (14 olay)** ve **yangın tespiti (1 olay)** gibi ihlal türlerindeki dengesizliklerin sebepleri araştırılmalı ve riskli alanlara yönelik özel izleme stratejileri geliştirilmelidir."
+}

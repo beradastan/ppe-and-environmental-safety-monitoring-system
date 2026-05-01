@@ -6,8 +6,4 @@
   font-weight: 700;
   letter-spacing: 0.05em;
 }
-.badge--new      { background: #dc3545; color: #fff; }
-.badge--update   { background: #fd7e14; color: #fff; }
-.badge--active   { background: #fd7e14; color: #fff; }
-.badge--resolved { background: #28a745; color: #fff; }
-.badge--idle     { background: #6c757d; color: #fff; }
+.badge--new { background: #dc3545; color: #fff; }

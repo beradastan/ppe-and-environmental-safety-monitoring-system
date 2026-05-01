@@ -110,8 +110,8 @@ class PersonEventManager:
     """
     İhlal tabanlı event yöneticisi.
 
-    State machine: idle → new → active → resolved → idle
-    Sadece "new" kaydedilir. "resolved" dahili temizliktir.
+    State machine: idle → new → active → closed → idle
+    Sadece "new" kaydedilir. "closed" dahili temizliktir.
     """
 
     def __init__(
@@ -258,7 +258,7 @@ class PersonEventManager:
         self._active      = None
         self._clear_since = None
         # should_save=False — resolved frontend'e/diske yansımaz
-        return self._out(ev.event_id, "resolved", ev.repeat_count, ev.duration_sec, False, "alarm_cleared", sig)
+        return self._out(ev.event_id, "closed", ev.repeat_count, ev.duration_sec, False, "alarm_cleared", sig)
 
     # ------------------------------------------------------------------
     # Per-person violation state + exit history

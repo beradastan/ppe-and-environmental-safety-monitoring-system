@@ -1,7 +1,7 @@
 import EventCard from './EventCard.jsx'
 import './Sidebar.css'
 
-export default function Sidebar({ events, selectedId, onSelect, loading }) {
+export default function Sidebar({ events, selectedId, onSelect, loading, viewedIds = new Set() }) {
   return (
     <aside className="sidebar">
       <div className="sidebar__header">
@@ -20,6 +20,7 @@ export default function Sidebar({ events, selectedId, onSelect, loading }) {
             event={evt}
             selected={selectedId === evt.event_id}
             onClick={() => onSelect(evt.event_id)}
+            viewed={viewedIds.has(evt.event_id)}
           />
         ))}
       </div>

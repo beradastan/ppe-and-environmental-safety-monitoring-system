@@ -55,6 +55,8 @@ def write_event(data: dict, image_filename: str | None = None) -> None:
     llm_report    = data.get("llm_report")
     change_reason = data.get("change_reason", "")
     persons       = data.get("persons")
+    camera_id     = data.get("camera_id")
+    zone          = data.get("zone")
 
     h_viol, v_viol, m_viol, fire = _sig_flags(signature)
     sig_json     = json.dumps(signature, ensure_ascii=False)
@@ -69,8 +71,8 @@ def write_event(data: dict, image_filename: str | None = None) -> None:
                     event_id, event_status, created_at, updated_at,
                     repeat_count, duration_sec,
                     helmet_violation, vest_violation, mask_violation, fire_detected,
-                    signature, llm_report, persons
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s::jsonb)
+                    signature, llm_report, persons, camera_id, zone
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s::jsonb, %s, %s)
                 ON CONFLICT (event_id) DO UPDATE SET
                     event_status     = EXCLUDED.event_status,
                     updated_at       = EXCLUDED.updated_at,
@@ -82,13 +84,15 @@ def write_event(data: dict, image_filename: str | None = None) -> None:
                     fire_detected    = EXCLUDED.fire_detected,
                     signature        = EXCLUDED.signature,
                     llm_report       = EXCLUDED.llm_report,
-                    persons          = EXCLUDED.persons
+                    persons          = EXCLUDED.persons,
+                    camera_id        = COALESCE(EXCLUDED.camera_id, events.camera_id),
+                    zone             = COALESCE(EXCLUDED.zone, events.zone)
                 """,
                 (
                     event_id, event_status, ts, ts,
                     repeat_count, duration_sec,
                     h_viol, v_viol, m_viol, fire,
-                    sig_json, llm_report, persons_json,
+                    sig_json, llm_report, persons_json, camera_id, zone,
                 ),
             )
 
@@ -114,35 +118,18 @@ def write_event(data: dict, image_filename: str | None = None) -> None:
         logger.error("write_event hatasi: %s", exc, exc_info=True)
 
 
-def resolve_event(event_id: str) -> None:
-    """events tablosunda event_status='resolved' olarak günceller (video sonu / pipeline kapanışı)."""
+def close_event(event_id: str) -> None:
+    """events tablosunda event_status='closed' olarak günceller (video sonu / pipeline kapanışı)."""
     now = datetime.now()
     try:
         with db_cursor() as cur:
             cur.execute(
                 "UPDATE events SET event_status = %s, updated_at = %s WHERE event_id = %s",
-                ("resolved", now, event_id),
+                ("closed", now, event_id),
             )
-        logger.debug("Event cozumlendi: %s", event_id)
+        logger.debug("Event kapatildi: %s", event_id)
     except Exception as exc:
-        logger.error("resolve_event hatasi: %s", exc, exc_info=True)
-
-
-def update_llm_report(event_id: str, llm_report: str) -> None:
-    """events ve event_timeline tablolarındaki llm_report alanlarını günceller."""
-    try:
-        with db_cursor() as cur:
-            cur.execute(
-                "UPDATE events SET llm_report = %s WHERE event_id = %s",
-                (llm_report, event_id),
-            )
-            cur.execute(
-                "UPDATE event_timeline SET llm_report = %s WHERE event_id = %s",
-                (llm_report, event_id),
-            )
-        logger.debug("LLM raporu guncellendi: %s", event_id)
-    except Exception as exc:
-        logger.error("update_llm_report hatasi: %s", exc, exc_info=True)
+        logger.error("close_event hatasi: %s", exc, exc_info=True)
 
 
 def write_note(event_id: str, note_text: str) -> datetime:

@@ -5,7 +5,7 @@ import Dashboard from './pages/Dashboard.jsx'
 import AlertHistory from './pages/AlertHistory.jsx'
 import Reports from './pages/Reports.jsx'
 import Settings from './pages/Settings.jsx'
-import Demo from './pages/Demo.jsx'
+import CameraSetup from './pages/CameraSetup.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 import socket from './socket.js'
 
@@ -26,10 +26,10 @@ export default function App() {
       setActiveAlarms(n => Math.max(0, n - 1))
     }
     socket.on('new_alert', onAlert)
-    socket.on('event_resolved', onResolved)
+    socket.on('event_closed', onResolved)
     return () => {
       socket.off('new_alert', onAlert)
-      socket.off('event_resolved', onResolved)
+      socket.off('event_closed', onResolved)
     }
   }, [])
 
@@ -68,7 +68,7 @@ export default function App() {
           )}
           {page === 'reports'  && <Reports />}
           {page === 'settings' && <Settings />}
-          {page === 'demo'     && <Demo />}
+          {page === 'camera'   && <CameraSetup />}
         </ErrorBoundary>
       </div>
       <ToastContainer toasts={toasts} onDismiss={id => setToasts(prev => prev.filter(t => t.id !== id))} />

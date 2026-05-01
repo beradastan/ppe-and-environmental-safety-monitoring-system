@@ -1,0 +1,393 @@
+.cs-page {
+  padding: 28px 32px;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+/* ── Header ── */
+.cs-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.cs-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #d0dff0;
+  margin: 0;
+}
+
+.cs-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #4a5a70;
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: #1a1a30;
+  border: 1px solid #2a2a4e;
+}
+
+.cs-badge--on {
+  color: #4dff9a;
+  background: #0a2a18;
+  border-color: #1a5a36;
+}
+
+.cs-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.cs-badge--on .cs-dot {
+  animation: cs-blink 1.8s infinite;
+}
+
+@keyframes cs-blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+
+/* ── Running bar ── */
+.cs-running-bar {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  background: #0a2a18;
+  border: 1px solid #1a5a36;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 0.82rem;
+  color: #7adfa0;
+  margin-bottom: 20px;
+}
+
+.cs-running-bar strong {
+  color: #4dff9a;
+}
+
+/* ── Layout ── */
+.cs-body {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 760px) {
+  .cs-body { grid-template-columns: 1fr; }
+}
+
+/* ── Cards ── */
+.cs-card {
+  background: #141428;
+  border: 1px solid #2a3a5e;
+  border-radius: 10px;
+  padding: 18px 20px;
+  margin-bottom: 16px;
+}
+
+.cs-card__label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #4a6a90;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 14px;
+}
+
+/* ── Source tabs ── */
+.cs-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.cs-tab {
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  border: 1px solid #2a3a5e;
+  background: #1a1a30;
+  color: #6a8ab0;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.cs-tab:hover:not(:disabled) {
+  background: #22223a;
+  color: #a0c0e0;
+}
+
+.cs-tab--active {
+  background: #0d2a4a !important;
+  border-color: #2a6aaa !important;
+  color: #5abaff !important;
+}
+
+.cs-tab:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Camera grid ── */
+.cs-cam-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.cs-cam-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 110px;
+  padding: 14px 12px;
+  background: #1a1a30;
+  border: 1px solid #2a3a5e;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  color: #7a9ab8;
+}
+
+.cs-cam-card:hover:not(:disabled) {
+  background: #22223e;
+  border-color: #4a7aaa;
+  color: #a0c0e0;
+}
+
+.cs-cam-card--selected {
+  background: #0d2a4a !important;
+  border-color: #4a9aff !important;
+  color: #5abaff !important;
+}
+
+.cs-cam-card:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.cs-cam-icon {
+  width: 36px;
+  height: 36px;
+  color: inherit;
+}
+
+.cs-cam-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.cs-cam-name {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: inherit;
+  text-align: center;
+  word-break: break-word;
+  max-width: 90px;
+}
+
+.cs-cam-index {
+  font-size: 0.68rem;
+  color: #4a6a80;
+}
+
+/* ── Video row ── */
+.cs-video-row {
+  display: flex;
+  gap: 8px;
+}
+
+/* ── Form fields ── */
+.cs-input {
+  background: #0e0e22;
+  border: 1px solid #3a3a5e;
+  border-radius: 6px;
+  color: #c0cde0;
+  font-size: 0.83rem;
+  padding: 8px 11px;
+  outline: none;
+  width: 100%;
+  font-family: inherit;
+  transition: border-color 0.15s;
+}
+
+.cs-input:focus {
+  border-color: #4a8aff;
+}
+
+.cs-input:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.cs-input::placeholder {
+  color: #3a4a60;
+}
+
+
+.cs-browse-btn {
+  background: #1e1e36;
+  border: 1px solid #3a3a5e;
+  border-radius: 6px;
+  color: #a0b0c8;
+  font-size: 0.82rem;
+  padding: 8px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+
+.cs-browse-btn:hover:not(:disabled) {
+  background: #2a2a4e;
+  border-color: #5a7aff;
+}
+
+.cs-browse-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.cs-field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+@media (max-width: 500px) {
+  .cs-field-row { grid-template-columns: 1fr; }
+}
+
+.cs-field__label {
+  display: block;
+  font-size: 0.73rem;
+  color: #5a7a9a;
+  margin-bottom: 6px;
+}
+
+/* ── Error ── */
+.cs-error {
+  background: #2a1010;
+  border: 1px solid #5a2020;
+  border-radius: 6px;
+  color: #ff7070;
+  font-size: 0.82rem;
+  padding: 9px 14px;
+  margin-bottom: 14px;
+}
+
+/* ── Action buttons ── */
+.cs-start-btn,
+.cs-stop-btn {
+  width: 100%;
+  padding: 13px 0;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+  letter-spacing: 0.03em;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.cs-start-btn:disabled,
+.cs-stop-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.cs-start-btn {
+  background: #0d3a1e;
+  color: #4dff9a;
+  border: 1px solid #1a6a36;
+}
+
+.cs-start-btn:hover:not(:disabled) {
+  background: #124828;
+}
+
+.cs-stop-btn {
+  background: #3a100e;
+  color: #ff7070;
+  border: 1px solid #6a1e1e;
+}
+
+.cs-stop-btn:hover:not(:disabled) {
+  background: #4a1412;
+}
+
+/* ── Right panel ── */
+.cs-info-card,
+.cs-status-card {
+  margin-bottom: 16px;
+}
+
+.cs-info-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cs-info-list li {
+  font-size: 0.8rem;
+  color: #6a8aaa;
+  line-height: 1.5;
+  padding-left: 12px;
+  position: relative;
+}
+
+.cs-info-list li::before {
+  content: '›';
+  position: absolute;
+  left: 0;
+  color: #3a6a9a;
+}
+
+.cs-info-list code {
+  background: #1a2a3e;
+  color: #5abaff;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 0.78rem;
+}
+
+.cs-status-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cs-status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.82rem;
+}
+
+.cs-status-key {
+  color: #5a7a9a;
+}
+
+.cs-status-val {
+  color: #8aaac8;
+  font-weight: 600;
+  text-align: right;
+  max-width: 160px;
+  word-break: break-all;
+}
+
+.cs-status-val--on  { color: #4dff9a; }
+.cs-status-val--off { color: #ff5050; }
