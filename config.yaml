@@ -30,7 +30,7 @@ llm:
   temperature: 0.3
   timeout: 120
 models:
-  device: auto
+  device: cuda
   fire_model: models/bera/fire_smoke_other_agent_final_best.pt
   helmet_model: models/bera/crophelmet_agent_final_best.pt
   mask_imgsz: 640
