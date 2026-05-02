@@ -391,3 +391,10 @@
 
 .cs-status-val--on  { color: #4dff9a; }
 .cs-status-val--off { color: #ff5050; }
+
+.cs-mode-desc {
+  font-size: 0.82rem;
+  color: #aaa;
+  margin: 8px 0 0;
+  line-height: 1.4;
+}

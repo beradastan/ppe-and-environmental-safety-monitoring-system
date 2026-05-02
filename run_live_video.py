@@ -2,16 +2,13 @@
 """
 run_live_video.py
 =================
-Crop-tabanlı PPE pipeline — nihai modeller:
-  Helmet : crophelmet_agent_final_best.pt  conf=0.20  (üst %55 crop)
-  Vest   : vest_agent_final_best.pt        conf=0.30  (orta %15-85 crop)
-  Mask   : cropmask_agent_final_best.pt    conf=0.25  (baş %35 crop)
+Birleşik PPE pipeline — crop-based veya scene-based modda çalışır.
 
 Kullanim:
-    python run_live_video.py                          # headless (arka plan)
-    python run_live_video.py --display                # pencereli
-    python run_live_video.py --video test/nohat_test.mp4
-    python run_live_video.py --camera 1 --display
+    python run_live_video.py --mode crop   # crop-based (varsayilan)
+    python run_live_video.py --mode scene  # scene-based
+    python run_live_video.py --mode crop --display
+    python run_live_video.py --mode scene --video test/nohat_test.mp4
 """
 from __future__ import annotations
 
@@ -43,14 +40,12 @@ os.chdir(Path(__file__).parent)
 from ultralytics import YOLO
 
 # ---------------------------------------------------------------------------
-# LLM entegrasyonu
+# Yardımcı: backend URL + kamera bildirimi
 # ---------------------------------------------------------------------------
 
 def _build_alarm_text(event_type: str, persons: list[dict]) -> str:
-    """Template-based kısa alarm metni — konsol/bildirim için."""
     if event_type == "fire_detected":
         return "Yangın/duman tespit edildi! Acil müdahale gerekiyor."
-
     violators = []
     for p in persons:
         viols = p.get("violations", [])
@@ -61,7 +56,6 @@ def _build_alarm_text(event_type: str, persons: list[dict]) -> str:
         if "no_vest"   in viols: names.append("yelek")
         if "no_mask"   in viols: names.append("maske")
         violators.append(f"#{p['track_id']} ({', '.join(names)} eksik)")
-
     ppe_str = ", ".join(violators) if violators else "PPE ihlali"
     if event_type == "multi_hazard":
         return f"Yangın + PPE ihlali tespit edildi — {ppe_str}."
@@ -90,7 +84,6 @@ def _notify_camera_status(status: str, camera_id: str | None = None, zone: str |
 
 
 def _close_event(event_id: str, repeat_count: int | None = None) -> None:
-    """Backend'e PATCH /api/events/<id>/close çağrısı yapar (thread-safe)."""
     try:
         body = {"repeat_count": repeat_count} if repeat_count is not None else {}
         requests.patch(
@@ -104,7 +97,218 @@ def _close_event(event_id: str, repeat_count: int | None = None) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Sabitler
+# LLM entegrasyonu (her iki modda da etkin, config.yaml llm.enabled ile kontrol)
+# ---------------------------------------------------------------------------
+
+_llm_threads: list[threading.Thread] = []
+
+_KW_MAP = {"no_helmet": "baret", "no_vest": "yelek", "no_mask": "maske"}
+
+_SYS_OPT2 = (
+    "Sen bir fabrika iş güvenliği uzmanısın.\n"
+    "Verilen olay verisini analiz et ve profesyonel, akıcı Türkçe ile 2-3 cümle yaz.\n"
+    "1. cümle: Ne tespit edildi (kişi numaralarını ve eksik KKD'leri belirt).\n"
+    "2. cümle: Bu durumun riski veya önemi.\n"
+    "3. cümle (varsa): Önerilen acil eylem.\n"
+    "Sadece verilen verileri kullan, bilgi uydurma. Selamlama veya ekstra cümle yazma."
+)
+_SYS_OPT3_LOW = (
+    "Sen bir fabrika iş güvenliği asistanısın.\n"
+    "Düşük öncelikli KKD ihlali tespit edildi.\n"
+    "Kısa, sakin, bilgilendirici 1-2 cümle yaz.\n"
+    "Kişi numarasını ve eksik KKD'yi belirt; sonunda basit bir hatırlatma ekle.\n"
+    "Sadece Türkçe, sadece verilen verileri kullan."
+)
+_SYS_OPT3_MEDIUM = (
+    "Sen bir fabrika iş güvenliği uzmanısın.\n"
+    "Orta öncelikli KKD ihlali tespit edildi.\n"
+    "2-3 cümle yaz: önce durumu açıkla, sonra riski vurgula, sonra net bir eylem öner.\n"
+    "Resmi ve kararlı ton kullan. Sadece Türkçe, sadece verilen verileri kullan."
+)
+_SYS_OPT3_HIGH = (
+    "Sen bir fabrika acil durum AI sistemisin.\n"
+    "KRİTİK durum tespit edildi.\n"
+    "2 cümle yaz: ilk cümle tehlikeyi net ifade et, ikinci cümle derhal yapılacak eylemi söyle.\n"
+    "Kısa, güçlü, aciliyet hissettiren dil kullan. Sadece Türkçe."
+)
+_SYS_OPT3_MAP = {"LOW": _SYS_OPT3_LOW, "MEDIUM": _SYS_OPT3_MEDIUM, "HIGH": _SYS_OPT3_HIGH}
+
+
+def _load_llm_cfg() -> dict:
+    try:
+        with open("config.yaml", encoding="utf-8") as f:
+            return (yaml.safe_load(f) or {}).get("llm", {})
+    except Exception:
+        return {}
+
+
+def _call_ollama(prompt: str, cfg: dict, system=None, _retries: int = 2, multiline: bool = False):
+    body = {
+        "model":       cfg.get("model", "qwen3:8b"),
+        "prompt":      prompt,
+        "temperature": cfg.get("temperature", 0.1),
+        "stream":      False,
+    }
+    if system:
+        body["system"] = system
+    url     = f"{cfg.get('base_url', 'http://localhost:11434')}/api/generate"
+    timeout = cfg.get("timeout", 120)
+    for attempt in range(1, _retries + 2):
+        try:
+            resp = requests.post(url, json=body, timeout=timeout)
+            if resp.status_code == 200:
+                raw = resp.json().get("response", "").strip()
+                raw = raw.removeprefix("Output:").strip(" \"'\n")
+                if multiline:
+                    if raw:
+                        return raw
+                else:
+                    first_line = raw.split("\n")[0].strip().strip("\"'")
+                    if first_line.endswith("."):
+                        return first_line
+                    if "." in first_line:
+                        return first_line[:first_line.rindex(".") + 1]
+                    if first_line:
+                        return first_line
+                print(f"  [LLM] Boş yanıt (deneme {attempt}), yenileniyor...")
+        except Exception as e:
+            print(f"  [LLM] Hata (deneme {attempt}): {e}")
+        if attempt <= _retries:
+            time.sleep(2)
+    return None
+
+
+def _severity_from_payload(payload: dict) -> str:
+    scene = payload.get("scene", {})
+    if scene.get("fire_detected") or scene.get("smoke_detected"):
+        return "HIGH"
+    persons     = payload.get("persons", [])
+    total_viols = sum(len(p.get("violations", [])) for p in persons)
+    if len(persons) >= 2 or total_viols >= 3:
+        return "MEDIUM"
+    return "LOW"
+
+
+def _build_fact_block(payload: dict) -> str:
+    persons       = payload.get("persons", [])
+    scene         = payload.get("scene", {})
+    repeat_count  = int(payload.get("repeat_count", 1))
+    total_persons = int(payload.get("total_persons", len(persons)))
+    event_type    = payload.get("event_type", "ppe_violation")
+    violator_count = sum(1 for p in persons if p.get("violations"))
+    repeat_suffix  = f" — {repeat_count}. tekrar" if repeat_count > 1 else ""
+    if event_type == "fire_detected":
+        type_tr = "Yangın/duman"
+    elif event_type == "ppe_violation":
+        type_tr = f"KKD ihlali ({violator_count} kişi)" if violator_count > 1 else "KKD ihlali"
+    else:
+        type_tr = f"Çoklu tehlike ({violator_count} kişi)" if violator_count > 1 else "Çoklu tehlike"
+    lines = [f"Olay tipi: {type_tr}{repeat_suffix}"]
+    if scene.get("fire_detected"):
+        lines.append("Sahne: yangın tespit edildi")
+    if scene.get("smoke_detected"):
+        lines.append("Sahne: duman tespit edildi")
+    if total_persons > 0 and violator_count > 0:
+        lines.append(f"Sahada: {total_persons} kişi ({violator_count} ihlal)")
+    for p in persons:
+        viols = p.get("violations", [])
+        if not viols:
+            continue
+        active = [v for v in viols if v in _KW_MAP]
+        if len(active) >= 2:
+            lines.append(f"Kişi #{p['track_id']}: hiçbir KKD yok")
+        else:
+            parts = [_KW_MAP[v] + "=YOK" for v in active]
+            lines.append(f"Kişi #{p['track_id']}: {', '.join(parts)}")
+    return "\n".join(lines)
+
+
+def _build_fire_block(payload: dict) -> str:
+    scene = payload.get("scene", {})
+    lines = ["Olay tipi: Yangın/duman"]
+    if scene.get("fire_detected"):
+        lines.append("Sahne: yangın tespit edildi")
+    if scene.get("smoke_detected"):
+        lines.append("Sahne: duman tespit edildi")
+    return "\n".join(lines)
+
+
+def _build_ppe_block(payload: dict) -> str:
+    persons       = payload.get("persons", [])
+    total_persons = int(payload.get("total_persons", len(persons)))
+    repeat_count  = int(payload.get("repeat_count", 1))
+    violator_count = sum(1 for p in persons if p.get("violations"))
+    repeat_suffix  = f" — {repeat_count}. tekrar" if repeat_count > 1 else ""
+    type_tr = f"KKD ihlali ({violator_count} kişi)" if violator_count > 1 else "KKD ihlali"
+    lines = [f"Olay tipi: {type_tr}{repeat_suffix}"]
+    if total_persons > 0 and violator_count > 0:
+        lines.append(f"Sahada: {total_persons} kişi ({violator_count} ihlal)")
+    for p in persons:
+        viols = p.get("violations", [])
+        if not viols:
+            continue
+        active = [v for v in viols if v in _KW_MAP]
+        if len(active) >= 2:
+            lines.append(f"Kişi #{p['track_id']}: hiçbir KKD yok")
+        else:
+            parts = [_KW_MAP[v] + "=YOK" for v in active]
+            lines.append(f"Kişi #{p['track_id']}: {', '.join(parts)}")
+    return "\n".join(lines)
+
+
+def _patch_llm_report(event_id: str, report: str) -> None:
+    try:
+        requests.patch(
+            f"{_get_backend_url()}/api/events/{event_id}/llm",
+            json={"llm_report": report},
+            timeout=5,
+        )
+        print(f"  [LLM] Backend bildirildi: {event_id}")
+    except Exception as e:
+        print(f"  [LLM] Backend bildirim hatası: {e}")
+
+
+def _llm_report_async(payload: dict, json_path: Path, cfg: dict) -> None:
+    event_id   = payload.get("event_id", "")
+    fallback   = payload.get("alarm_text", "")
+    event_type = payload.get("event_type", "ppe_violation")
+    sev        = _severity_from_payload(payload)
+
+    if event_type == "multi_hazard":
+        fire_block = _build_fire_block(payload)
+        ppe_block  = _build_ppe_block(payload)
+        fire2 = _call_ollama(fire_block, cfg, system=_SYS_OPT2,         multiline=True) or fallback
+        ppe2  = _call_ollama(ppe_block,  cfg, system=_SYS_OPT2,         multiline=True) or fallback
+        fire3 = _call_ollama(fire_block, cfg, system=_SYS_OPT3_HIGH,    multiline=True) or fallback
+        ppe3  = _call_ollama(ppe_block,  cfg, system=_SYS_OPT3_MAP[sev], multiline=True) or fallback
+        combined = json.dumps({
+            "multi": True,
+            "opt2": {"fire": fire2, "ppe": ppe2},
+            "opt3": {"fire": fire3, "ppe": ppe3},
+            "sev": sev,
+        }, ensure_ascii=False)
+        print(f"  [LLM] Çoklu tehlike raporları yazıldı ({sev}): {json_path.name}")
+    else:
+        fact = _build_fact_block(payload)
+        opt2 = _call_ollama(fact, cfg, system=_SYS_OPT2,          multiline=True) or fallback
+        opt3 = _call_ollama(fact, cfg, system=_SYS_OPT3_MAP[sev], multiline=True) or fallback
+        combined = json.dumps({"opt2": opt2, "opt3": opt3, "sev": sev}, ensure_ascii=False)
+        print(f"  [LLM] Raporlar yazıldı ({sev}): {json_path.name}")
+        print(f"    Opt2: {opt2[:80]}")
+
+    try:
+        with open(json_path, encoding="utf-8") as f:
+            data = json.load(f)
+        data["llm_report"] = combined
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"  [LLM] JSON yazma hatası: {e}")
+    _patch_llm_report(event_id, combined)
+
+
+# ---------------------------------------------------------------------------
+# Sabitler — ortak
 # ---------------------------------------------------------------------------
 
 def _load_model_cfg() -> dict:
@@ -118,52 +322,60 @@ _MODEL_CFG = _load_model_cfg()
 _DEV_CFG = _MODEL_CFG.get("device", "auto")
 _DEVICE  = ("cuda" if _TORCH_CUDA else "cpu") if _DEV_CFG == "auto" else _DEV_CFG
 
-HELMET_MODEL_PATH = _MODEL_CFG.get("helmet_model", "models/bera/crophelmet_agent_final_best.pt")
-VEST_MODEL_PATH   = _MODEL_CFG.get("vest_model",   "models/bera/vest_agent_final_best.pt")
-MASK_MODEL_PATH   = _MODEL_CFG.get("mask_model",   "models/bera/cropmask_agent_final_best.pt")
 FIRE_MODEL_PATH   = _MODEL_CFG.get("fire_model",   "models/bera/fire_smoke_other_agent_final_best.pt")
 PERSON_MODEL_PATH = _MODEL_CFG.get("person_model", "models/person_agent_scene_vinayakstyle_best.pt")
 
-HELMET_PAD   = 0.80
-VEST_PAD     = 0.60
-MASK_PAD     = 0.80
-HELMET_CONF  = 0.15
-VEST_CONF    = 0.35
-MASK_CONF    = 0.10
-MASK_IMGSZ   = int(_MODEL_CFG.get("mask_imgsz", 1280))  # config.yaml models.mask_imgsz
-FIRE_CONF    = 0.75  # yükseltildi: kum/yelek false positive bastırma (eski: 0.50)
+# Crop-based varsayılan model yolları (config.yaml models.crop'tan okunur)
+_CROP_CFG = _MODEL_CFG.get("crop", {})
+CROP_HELMET_MODEL_PATH = _CROP_CFG.get("helmet_model", "models/bera/crophelmet_agent_final_best.pt")
+CROP_VEST_MODEL_PATH   = _CROP_CFG.get("vest_model",   "models/bera/cropvest_agent_final_best.pt")
+CROP_MASK_MODEL_PATH   = _CROP_CFG.get("mask_model",   "models/bera/cropmask_agent_final_best.pt")
+CROP_MASK_IMGSZ        = int(_CROP_CFG.get("mask_imgsz", 640))
+
+# Scene-based varsayılan model yolları (config.yaml models.scene'den okunur)
+_SCENE_CFG = _MODEL_CFG.get("scene", {})
+SCENE_HELMET_MODEL_PATH = _SCENE_CFG.get("helmet_model", "models/vinayak_trained_byBera/helmet_agent_final_best.pt")
+SCENE_VEST_MODEL_PATH   = _SCENE_CFG.get("vest_model",   "models/vinayak_trained_byBera/vest_agent_final_best.pt")
+SCENE_MASK_MODEL_PATH   = _SCENE_CFG.get("mask_model",   "models/mask_agent_scene_200ep_yolov8m_best.pt")
+
+# Confidence eşikleri — crop modu
+CROP_HELMET_CONF = 0.15
+CROP_VEST_CONF   = 0.35
+CROP_MASK_CONF   = 0.10
+
+# Confidence eşikleri — scene modu
+SCENE_HELMET_CONF = 0.20
+SCENE_VEST_CONF   = 0.30
+SCENE_MASK_CONF   = 0.25
+
+FIRE_CONF    = 0.75
 PERSON_CONF  = 0.25
 IMGSZ        = 640
-TRACKER      = "bytetrack.yaml"   # proje kökündeki özel config (track_buffer=60)
-TEMPORAL_WIN      = 20   # artırıldı: daha kararlı oy (eski: 10)
-STATES_CLEANUP_EVERY = 300  # her N frame'de kayıp track temizliği
-PPE_INFER_EVERY   = 4    # PPE inference her N frame'de bir çalışır (1 = her frame)
-FIRE_INFER_EVERY  = 5    # fire/smoke her N frame'de bir çalışır (1 = her frame)
+TRACKER      = "bytetrack.yaml"
+TEMPORAL_WIN = 20
+STATES_CLEANUP_EVERY = 300
 
-MIN_CROP_PX      = 40   # crop bu boyutun altındaysa model çağrılmaz (kenar kişi)
-MIN_TRACK_FRAMES     = 10    # bu kadar frame görülmemiş track'lar ghost — event'e dahil edilmez
-# PPE tipine göre geometrik eşikler
-# mask daha hoşgörülü: yüz bölgesi küçük, biraz komşu üstüne gelse yine de reddedilmemeli
-# vest daha sıkı: büyük nesne, komşu üstüne gelmesi nadiren meşru
-PPE_MIN_SELF_SCORE: dict[str, float] = {
-    "helmet": 0.20,
-    "vest":   0.20,
-    "mask":   0.15,
-}
-PPE_MAX_NEIGHBOR_RATIO: dict[str, float] = {
-    "helmet": 0.80,
-    "vest":   0.75,
-    "mask":   0.90,
-}
-MIN_HEAD_PX  = 30   # kafa/maske anatomik bölgesi bu genişliğin altındaysa çıkarım yapma
-MIN_TORSO_PX = 50   # gövde/yelek bölgesi için minimum genişlik
-TELEMETRY    = False  # PPE karar telemetrisi (True → her kararda konsola log yazar)
+# Crop-specific
+HELMET_PAD  = 0.80
+VEST_PAD    = 0.60
+MASK_PAD    = 0.80
+PPE_INFER_EVERY  = 4
+FIRE_INFER_EVERY = 5
+MIN_CROP_PX      = 40
+MIN_TRACK_FRAMES = 10
+PPE_MIN_SELF_SCORE: dict[str, float] = {"helmet": 0.20, "vest": 0.20, "mask": 0.15}
+PPE_MAX_NEIGHBOR_RATIO: dict[str, float] = {"helmet": 0.80, "vest": 0.75, "mask": 0.90}
+MIN_HEAD_PX  = 30
+MIN_TORSO_PX = 50
+TELEMETRY    = False
+
+# Scene-specific
+INSIDE_FRAC_THR = 0.40
 
 HELMET_CLASSES = ["Hardhat", "NO-Hardhat"]
 VEST_CLASSES   = ["Safety Vest", "NO-Safety Vest"]
 MASK_CLASSES   = ["Mask", "NO-Mask"]
 
-# Ekran renkleri (BGR)
 COLOR_OK      = (0, 200, 0)
 COLOR_WARN    = (0, 100, 255)
 COLOR_DANGER  = (0, 0, 230)
@@ -171,7 +383,7 @@ COLOR_UNKNOWN = (0, 200, 255)
 COLOR_FIRE    = (0, 60, 255)
 
 # ---------------------------------------------------------------------------
-# Yardimcilar
+# Ortak yardımcılar
 # ---------------------------------------------------------------------------
 
 def class_ids(model: YOLO, names: list[str]) -> list[int]:
@@ -182,71 +394,113 @@ def class_ids(model: YOLO, names: list[str]) -> list[int]:
     return [name_to_id[n] for n in names]
 
 
-def crop_pad(frame, x1, y1, x2, y2, pad: float):
-    h, w = frame.shape[:2]
-    pw = int(max(1, x2 - x1) * pad)
-    ph = int(max(1, y2 - y1) * pad)
-    return frame[max(0, y1 - ph):min(h, y2 + ph), max(0, x1 - pw):min(w, x2 + pw)]
+def vote(q: deque, min_known: int = 3, ratio_threshold: float = 0.5) -> str:
+    if not q:
+        return "unknown"
+    result = Counter(q).most_common(1)[0][0]
+    if result != "unknown":
+        return result
+    known = [v for v in q if v != "unknown"]
+    if len(known) < min_known:
+        return "unknown"
+    top_label, top_count = Counter(known).most_common(1)[0]
+    if top_count / len(known) >= ratio_threshold:
+        return top_label
+    return "unknown"
+
+
+def compliance_color(hvote: str, vvote: str, mvote: str) -> tuple[tuple[int, int, int], list[str]]:
+    h_miss = hvote == "NO-Hardhat"
+    v_miss = vvote == "NO-Safety Vest"
+    m_miss = mvote == "NO-Mask"
+    h_ok   = hvote == "Hardhat"
+    v_ok   = vvote == "Safety Vest"
+    m_ok   = mvote == "Mask"
+    viols  = []
+    if h_miss: viols.append("no_helmet")
+    if v_miss: viols.append("no_vest")
+    if m_miss: viols.append("no_mask")
+    if h_ok and v_ok and m_ok:
+        return COLOR_OK, []
+    if viols:
+        return COLOR_DANGER if len(viols) >= 2 else COLOR_WARN, viols
+    return COLOR_UNKNOWN, viols
+
+
+def draw_box(frame, x1, y1, x2, y2, text: str, color):
+    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 3)
+    scale, thick, pad = 0.60, 2, 6
+    (tw, th), bl = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, thick)
+    bx1 = max(0, x1)
+    by2 = max(th + bl + pad * 2, y1)
+    by1 = by2 - th - bl - pad * 2
+    bx2 = min(frame.shape[1] - 1, bx1 + tw + pad * 2)
+    cv2.rectangle(frame, (bx1, by1), (bx2, by2), color, -1)
+    lum = 0.114 * color[0] + 0.587 * color[1] + 0.299 * color[2]
+    fg  = (0, 0, 0) if lum > 140 else (255, 255, 255)
+    cv2.putText(frame, text, (bx1 + pad, by2 - pad - bl),
+                cv2.FONT_HERSHEY_SIMPLEX, scale, fg, thick, cv2.LINE_AA)
+
+
+def draw_ppe_box(frame, x1, y1, x2, y2, label: str, color, tag: str):
+    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+    scale, thick, pad = 0.45, 1, 4
+    text = f"{tag} {label}"
+    (tw, th), bl = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, thick)
+    bx1 = max(0, x1)
+    by2 = min(frame.shape[0] - 1, y2)
+    by1 = max(0, by2 - th - bl - pad * 2)
+    bx2 = min(frame.shape[1] - 1, bx1 + tw + pad * 2)
+    cv2.rectangle(frame, (bx1, by1), (bx2, by2), color, -1)
+    lum = 0.114 * color[0] + 0.587 * color[1] + 0.299 * color[2]
+    fg  = (0, 0, 0) if lum > 140 else (255, 255, 255)
+    cv2.putText(frame, text, (bx1 + pad, by2 - pad - bl),
+                cv2.FONT_HERSHEY_SIMPLEX, scale, fg, thick, cv2.LINE_AA)
+
+
+def draw_hud(frame, event_id, status, repeat, viols_per_person):
+    font  = cv2.FONT_HERSHEY_SIMPLEX
+    color = (0, 0, 200) if status in ("new", "active") else (0, 200, 0)
+    cv2.putText(frame, f"EVENT: {event_id or 'N/A'} [{status.upper()}]",
+                (10, 30), font, 0.7, color, 2)
+    cv2.putText(frame, f"Repeat: {repeat}  Active violations: {len(viols_per_person)}",
+                (10, 58), font, 0.6, color, 2)
+
+
+# ---------------------------------------------------------------------------
+# Crop-tabanlı detection yardımcıları
+# ---------------------------------------------------------------------------
+
+def crop_ppe(frame, x1, y1, x2, y2, ppe: str):
+    fh, fw = frame.shape[:2]
+    pw = x2 - x1
+    ph = y2 - y1
+    if ppe == "helmet":
+        cx1 = max(0, x1 - int(pw * 0.10))
+        cy1 = max(0, y1 - int(ph * 0.15))
+        cx2 = min(fw, x2 + int(pw * 0.10))
+        cy2 = min(fh, y1 + int(ph * 0.40))
+    elif ppe == "vest":
+        cx1 = max(0, x1 - int(pw * 0.15))
+        cy1 = max(0, y1 + int(ph * 0.10))
+        cx2 = min(fw, x2 + int(pw * 0.15))
+        cy2 = min(fh, y1 + int(ph * 0.90))
+    else:  # mask
+        cx1 = max(0, x1 - int(pw * 0.15))
+        cy1 = max(0, y1 - int(ph * 0.10))
+        cx2 = min(fw, x2 + int(pw * 0.15))
+        cy2 = min(fh, y1 + int(ph * 0.45))
+    return frame[cy1:cy2, cx1:cx2], cx1, cy1
 
 
 def _crop_ok(crop) -> bool:
-    """Crop geçerliyse True — çok küçük veya boş croplar atlanır."""
     if crop is None or crop.size == 0:
         return False
     h, w = crop.shape[:2]
     return h >= MIN_CROP_PX and w >= MIN_CROP_PX
 
 
-def crop_ppe(frame, x1, y1, x2, y2, ppe: str):
-    """
-    Her PPE tipi için optimize edilmiş bölge crop'u.
-    Dar padding → komşu kişi kirliliği önlenir.
-    Döndürür: (crop_img, origin_x, origin_y)
-    """
-    fh, fw = frame.shape[:2]
-    pw = x2 - x1
-    ph = y2 - y1
-
-    if ppe == "helmet":
-        # Kişinin üst %40'ı + yanlara %10 + yukarı %15 (elde tutulan bareti dışarıda bırakmak için daraltıldı)
-        cx1 = max(0, x1 - int(pw * 0.10))
-        cy1 = max(0, y1 - int(ph * 0.15))
-        cx2 = min(fw, x2 + int(pw * 0.10))
-        cy2 = min(fh, y1 + int(ph * 0.40))
-    elif ppe == "vest":
-        # Kişinin %10-%90 yükseklik aralığı + yanlara %15
-        cx1 = max(0, x1 - int(pw * 0.15))
-        cy1 = max(0, y1 + int(ph * 0.10))
-        cx2 = min(fw, x2 + int(pw * 0.15))
-        cy2 = min(fh, y1 + int(ph * 0.90))
-    else:  # mask
-        # Sadece baş bölgesi: üst %45 + yanlara %15 + yukarı %10
-        cx1 = max(0, x1 - int(pw * 0.15))
-        cy1 = max(0, y1 - int(ph * 0.10))
-        cx2 = min(fw, x2 + int(pw * 0.15))
-        cy2 = min(fh, y1 + int(ph * 0.45))
-
-    crop = frame[cy1:cy2, cx1:cx2]
-    return crop, cx1, cy1
-
-
-def best_det(model: YOLO, result, allowed_ids: list[int], min_conf: float):
-    """En yüksek confidence tespiti döndür: (label, conf, bbox_in_crop | None)"""
-    best = None  # (label, conf, bbox)
-    for box in result.boxes:
-        cid  = int(box.cls[0])
-        conf = float(box.conf[0])
-        if cid not in allowed_ids or conf < min_conf:
-            continue
-        label = str(model.names[cid])
-        bbox  = box.xyxy[0].tolist()
-        if best is None or conf > best[1]:
-            best = (label, conf, bbox)
-    return best if best else ("unknown", 0.0, None)
-
-
 def crop_to_frame(bbox, ox: int, oy: int, fh: int, fw: int):
-    """Crop içi koordinatları frame koordinatlarına çevir (origin-tabanlı)."""
     dx1, dy1, dx2, dy2 = bbox
     return (
         min(fw - 1, int(ox + dx1)),
@@ -256,12 +510,7 @@ def crop_to_frame(bbox, ox: int, oy: int, fh: int, fw: int):
     )
 
 
-# ---------------------------------------------------------------------------
-# Geometric association layer
-# ---------------------------------------------------------------------------
-
 def _containment(inner: list, outer: list) -> float:
-    """inner kutusunun ne kadarı outer içinde (inner alanına oranla)."""
     ix1 = max(inner[0], outer[0]); iy1 = max(inner[1], outer[1])
     ix2 = min(inner[2], outer[2]); iy2 = min(inner[3], outer[3])
     inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
@@ -270,7 +519,6 @@ def _containment(inner: list, outer: list) -> float:
 
 
 def anatomical_region(x1: int, y1: int, x2: int, y2: int, ppe_type: str) -> list:
-    """Kişi bbox'ından PPE tipine göre anatomik bölge döndür (frame koordinatı)."""
     pw, ph = x2 - x1, y2 - y1
     if ppe_type == "helmet":
         return [x1 + int(pw * 0.05), y1 - int(ph * 0.10),
@@ -279,12 +527,10 @@ def anatomical_region(x1: int, y1: int, x2: int, y2: int, ppe_type: str) -> list
         return [x1 + int(pw * 0.15), y1,
                 x2 - int(pw * 0.15), y1 + int(ph * 0.28)]
     else:  # vest
-        return [x1, y1 + int(ph * 0.15),
-                x2, y1 + int(ph * 0.85)]
+        return [x1, y1 + int(ph * 0.15), x2, y1 + int(ph * 0.85)]
 
 
 def _collect_dets(model: YOLO, result, allowed_ids: list[int], min_conf: float) -> list[dict]:
-    """Tüm geçerli tespitleri döndür: [{label, conf, bbox_in_crop}, ...]"""
     dets = []
     if result.boxes is None:
         return dets
@@ -305,27 +551,15 @@ def _validate_ppe_scored(
     all_persons_frame: list[dict],
     ppe_type: str,
 ) -> tuple[str, float, float, str]:
-    """
-    PPE bbox'ını geometrik olarak değerlendirir.
-
-    Döner: (final_label, own_score, max_neighbor_score, reason)
-      reason ∈ {"accepted", "rejected", "ambiguous", "no_target"}
-      final_label = label  →  accepted
-      final_label = "unknown" →  rejected | ambiguous | no_target
-    """
     target = next((p for p in all_persons_frame if p["tid"] == target_tid), None)
     if target is None:
         return "unknown", 0.0, 0.0, "no_target"
-
     min_self = PPE_MIN_SELF_SCORE.get(ppe_type, 0.20)
     max_nb_r = PPE_MAX_NEIGHBOR_RATIO.get(ppe_type, 0.80)
-
     own_region = anatomical_region(*target["box"], ppe_type)
     own_score  = _containment(ppe_bbox_frame, own_region)
-
     if own_score < min_self:
         return "unknown", own_score, 0.0, "rejected"
-
     max_nb = 0.0
     for p in all_persons_frame:
         if p["tid"] == target_tid:
@@ -335,19 +569,7 @@ def _validate_ppe_scored(
             max_nb = nb_score
         if nb_score > own_score * max_nb_r:
             return "unknown", own_score, nb_score, "ambiguous"
-
     return label, own_score, max_nb, "accepted"
-
-
-def validate_ppe(
-    ppe_bbox_frame: list,
-    label: str,
-    target_tid: int,
-    all_persons_frame: list[dict],
-    ppe_type: str,
-) -> str:
-    """PPE bbox'ını geometrik olarak doğrula; "unknown" ya da onaylı label döndürür."""
-    return _validate_ppe_scored(ppe_bbox_frame, label, target_tid, all_persons_frame, ppe_type)[0]
 
 
 def neighbor_overlap_score(
@@ -355,8 +577,6 @@ def neighbor_overlap_score(
     all_persons_frame: list[dict],
     target_tid: int,
 ) -> float:
-    """Crop bölgesine en çok giren komşunun overlap oranını döndür (0.0–1.0).
-    Sıfır → komşu yok; 1.0 → crop tamamen komşunun içinde."""
     max_score = 0.0
     for p in all_persons_frame:
         if p["tid"] == target_tid:
@@ -367,18 +587,7 @@ def neighbor_overlap_score(
     return max_score
 
 
-def crop_has_neighbor(
-    crop_box: list,
-    all_persons_frame: list[dict],
-    target_tid: int,
-    thresh: float = 0.25,
-) -> bool:
-    """Crop bölgesine komşu kişi giriyorsa True — neighbor_overlap_score üstüne thin wrapper."""
-    return neighbor_overlap_score(crop_box, all_persons_frame, target_tid) > thresh
-
-
 def _iou(a: list, b: list) -> float:
-    """İki bbox arasında Intersection over Union."""
     ix1 = max(a[0], b[0]); iy1 = max(a[1], b[1])
     ix2 = min(a[2], b[2]); iy2 = min(a[3], b[3])
     inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
@@ -393,11 +602,6 @@ def _global_assign_ppe(
     candidates: list[dict],
     iou_thresh: float = 0.40,
 ) -> dict[int, dict]:
-    """
-    Greedy one-to-one: aynı fiziksel PPE bbox birden fazla kişiye gitmesin.
-    Adaylar conf × own_score'a göre azalan sırada işlenir.
-    Döner: {track_id: cand}  — sadece "accepted" adaylar.
-    """
     sorted_c = sorted(
         (c for c in candidates if c["reason"] == "accepted"),
         key=lambda c: c["conf"] * c["own_score"],
@@ -414,7 +618,6 @@ def _global_assign_ppe(
 
 
 def is_region_too_small(x1: int, y1: int, x2: int, y2: int, ppe_type: str) -> bool:
-    """Anatomik bölge çok küçükse True — uzak/küçük kişilerde gereksiz çıkarımı önler."""
     region = anatomical_region(x1, y1, x2, y2, ppe_type)
     w = region[2] - region[0]
     if ppe_type in ("helmet", "mask"):
@@ -445,85 +648,53 @@ def _log_ppe_decision(d: PPEDecision) -> None:
     )
 
 
-def draw_ppe_box(frame, x1, y1, x2, y2, label: str, color, tag: str):
-    """PPE tespiti için ince, küçük etiketli kutu."""
-    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-    scale, thick, pad = 0.45, 1, 4
-    text = f"{tag} {label}"
-    (tw, th), bl = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, thick)
-    bx1 = max(0, x1)
-    by2 = min(frame.shape[0] - 1, y2)
-    by1 = max(0, by2 - th - bl - pad * 2)
-    bx2 = min(frame.shape[1] - 1, bx1 + tw + pad * 2)
-    cv2.rectangle(frame, (bx1, by1), (bx2, by2), color, -1)
-    lum = 0.114 * color[0] + 0.587 * color[1] + 0.299 * color[2]
-    fg  = (0, 0, 0) if lum > 140 else (255, 255, 255)
-    cv2.putText(frame, text, (bx1 + pad, by2 - pad - bl),
-                cv2.FONT_HERSHEY_SIMPLEX, scale, fg, thick, cv2.LINE_AA)
+# ---------------------------------------------------------------------------
+# Scene-tabanlı detection yardımcıları
+# ---------------------------------------------------------------------------
+
+def _inside_frac(ppe_box: list, person_box: list) -> float:
+    px1, py1, px2, py2 = person_box
+    bx1, by1, bx2, by2 = ppe_box
+    ix1, iy1 = max(px1, bx1), max(py1, by1)
+    ix2, iy2 = min(px2, bx2), min(py2, by2)
+    if ix2 <= ix1 or iy2 <= iy1:
+        return 0.0
+    inter = (ix2 - ix1) * (iy2 - iy1)
+    area  = (bx2 - bx1) * (by2 - by1)
+    return inter / area if area > 0 else 0.0
 
 
-def vote(q: deque, min_known: int = 3, ratio_threshold: float = 0.5) -> str:
-    if not q:
-        return "unknown"
-    result = Counter(q).most_common(1)[0][0]
-    if result != "unknown":
-        return result
-    known = [v for v in q if v != "unknown"]
-    if len(known) < min_known:
-        return "unknown"
-    top_label, top_count = Counter(known).most_common(1)[0]
-    if top_count / len(known) >= ratio_threshold:
-        return top_label
-    return "unknown"
+def _scene_dets(
+    model: YOLO,
+    frame,
+    allowed_ids: set[int],
+    min_conf: float,
+    device: str,
+) -> list[tuple[str, float, list]]:
+    res = model.predict(frame, imgsz=IMGSZ, conf=min_conf, device=device, verbose=False)[0]
+    if not res.boxes:
+        return []
+    return [
+        (str(model.names[int(b.cls[0])]), float(b.conf[0]), b.xyxy[0].tolist())
+        for b in res.boxes
+        if int(b.cls[0]) in allowed_ids
+    ]
 
 
-def compliance_color(hvote: str, vvote: str, mvote: str) -> tuple[tuple[int, int, int], list[str]]:
-    h_ok   = hvote == "Hardhat"
-    v_ok   = vvote == "Safety Vest"
-    m_ok   = mvote == "Mask"
-    h_miss = hvote == "NO-Hardhat"
-    v_miss = vvote == "NO-Safety Vest"
-    m_miss = mvote == "NO-Mask"
-    viols  = []
-    if h_miss:
-        viols.append("no_helmet")
-    if v_miss:
-        viols.append("no_vest")
-    if m_miss:
-        viols.append("no_mask")
-    if h_ok and v_ok and m_ok:
-        return COLOR_OK, []
-    if viols:
-        return COLOR_DANGER if len(viols) >= 2 else COLOR_WARN, viols
-    return COLOR_UNKNOWN, viols
-
-
-def draw_box(frame, x1, y1, x2, y2, text: str, color):
-    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 3)
-    scale, thick, pad = 0.60, 2, 6
-    (tw, th), bl = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, thick)
-    bx1 = max(0, x1)
-    by2 = max(th + bl + pad * 2, y1)
-    by1 = by2 - th - bl - pad * 2
-    bx2 = min(frame.shape[1] - 1, bx1 + tw + pad * 2)
-    cv2.rectangle(frame, (bx1, by1), (bx2, by2), color, -1)
-    lum = 0.114 * color[0] + 0.587 * color[1] + 0.299 * color[2]
-    fg  = (0, 0, 0) if lum > 140 else (255, 255, 255)
-    cv2.putText(frame, text, (bx1 + pad, by2 - pad - bl),
-                cv2.FONT_HERSHEY_SIMPLEX, scale, fg, thick, cv2.LINE_AA)
-
-
-def draw_hud(frame, event_id, status, repeat, viols_per_person):
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    color = (0, 0, 200) if status in ("new", "active") else (0, 200, 0)
-    cv2.putText(frame, f"EVENT: {event_id or 'N/A'} [{status.upper()}]",
-                (10, 30), font, 0.7, color, 2)
-    cv2.putText(frame, f"Repeat: {repeat}  Active violations: {len(viols_per_person)}",
-                (10, 58), font, 0.6, color, 2)
+def _best_scene(
+    dets: list[tuple[str, float, list]],
+    person_box: list,
+) -> tuple[str, float, list | None]:
+    best: tuple[str, float, list] | None = None
+    for lbl, c, bbox in dets:
+        if _inside_frac(bbox, person_box) >= INSIDE_FRAC_THR:
+            if best is None or c > best[1]:
+                best = (lbl, c, bbox)
+    return best if best else ("unknown", 0.0, None)
 
 
 # ---------------------------------------------------------------------------
-# Event kayit
+# Event kayıt
 # ---------------------------------------------------------------------------
 
 def save_event(
@@ -546,9 +717,8 @@ def save_event(
     json_path = event_dir / f"{event_id}_new.json"
     img_path  = event_dir / f"{event_id}_new.jpg"
 
-    # event_type — signature'dan türet
-    has_ppe   = base_sig.get("helmet_violation") or base_sig.get("vest_violation") or base_sig.get("mask_violation")
-    has_fire  = base_sig.get("fire_detected", False)
+    has_ppe  = base_sig.get("helmet_violation") or base_sig.get("vest_violation") or base_sig.get("mask_violation")
+    has_fire = base_sig.get("fire_detected", False)
     if has_ppe and has_fire:
         event_type = "multi_hazard"
     elif has_fire:
@@ -556,13 +726,12 @@ def save_event(
     else:
         event_type = "ppe_violation"
 
-    # duration_sec per-person — event_manager'dan gelir, snapshot ile birleştir
     dur_map = {p["track_id"]: p.get("duration_sec", 0.0)
                for p in event_info.get("person_violations", [])}
 
     persons_detail = [
         {
-            "track_id":     p["track_id"],
+            "track_id":      p["track_id"],
             "helmet_status": p.get("helmet_status", "unknown"),
             "vest_status":   p.get("vest_status",   "unknown"),
             "mask_status":   p.get("mask_status",   "unknown"),
@@ -582,8 +751,7 @@ def save_event(
         "smoke_conf":     round(smoke_conf, 2),
     }
 
-    alarm_text = _build_alarm_text(event_type, persons_detail)
-
+    alarm_text   = _build_alarm_text(event_type, persons_detail)
     enriched_sig = {
         **base_sig,
         "helmet_missing_ids": [p["track_id"] for p in persons_detail if "no_helmet" in p.get("violations", [])],
@@ -604,6 +772,7 @@ def save_event(
         "scene":         scene,
         "signature":     enriched_sig,
         "alarm_text":    alarm_text,
+        "llm_report":    None,
         "camera_id":     camera_id,
         "zone":          zone,
     }
@@ -612,6 +781,16 @@ def save_event(
         json.dump(payload, f, ensure_ascii=False, indent=2)
     cv2.imwrite(str(img_path), frame)
     print(f"  [KAYIT] {event_id}/new  alarm: {alarm_text}")
+
+    llm_cfg = _load_llm_cfg()
+    if llm_cfg.get("enabled", False):
+        t = threading.Thread(
+            target=_llm_report_async,
+            args=(payload, json_path, llm_cfg),
+            daemon=False,
+        )
+        t.start()
+        _llm_threads.append(t)
 
     try:
         import winsound
@@ -625,7 +804,6 @@ def save_event(
 # ---------------------------------------------------------------------------
 
 def _cleanup_old_results(results_dir: Path, keep: int) -> None:
-    """results/ altındaki eski event klasörlerini siler; son `keep` tanesini korur."""
     if keep <= 0:
         return
     dirs = sorted(
@@ -648,32 +826,43 @@ def _cleanup_old_results(results_dir: Path, keep: int) -> None:
 
 def run(args):
     device = args.device
+    mode   = args.mode
 
-    print("Modeller yukleniyor...")
+    print(f"Modeller yukleniyor... (mod: {mode})")
     person_model = YOLO(PERSON_MODEL_PATH)
-    helmet_model = YOLO(HELMET_MODEL_PATH)
-    vest_model   = YOLO(VEST_MODEL_PATH)
-    mask_model   = YOLO(MASK_MODEL_PATH)
     fire_model   = YOLO(FIRE_MODEL_PATH)
-    print("  person, helmet, vest, mask, fire modelleri hazir.")
+
+    if mode == "crop":
+        helmet_model = YOLO(CROP_HELMET_MODEL_PATH)
+        vest_model   = YOLO(CROP_VEST_MODEL_PATH)
+        mask_model   = YOLO(CROP_MASK_MODEL_PATH)
+        print(f"  Crop modelleri: helmet={CROP_HELMET_MODEL_PATH}")
+    else:  # scene
+        helmet_model = YOLO(SCENE_HELMET_MODEL_PATH)
+        vest_model   = YOLO(SCENE_VEST_MODEL_PATH)
+        mask_model   = YOLO(SCENE_MASK_MODEL_PATH)
+        print(f"  Scene modelleri: helmet={SCENE_HELMET_MODEL_PATH}")
 
     _person_cls = next(n for n in person_model.names.values() if n.lower() == "person")
     p_ids = class_ids(person_model, [_person_cls])
     h_ids = class_ids(helmet_model, HELMET_CLASSES)
     v_ids = class_ids(vest_model,   VEST_CLASSES)
     m_ids = class_ids(mask_model,   MASK_CLASSES)
+    h_ids_set = set(h_ids)
+    v_ids_set = set(v_ids)
+    m_ids_set = set(m_ids)
 
     from event_manager import PersonEventManager
     from tracking_identity import TrackReattacher
-    _full_cfg  = yaml.safe_load(open("config.yaml", encoding="utf-8")) or {}
-    _ppe_cfg   = _full_cfg.get("ppe_pipeline", {})
-    _em_cfg    = _full_cfg.get("event_manager", {})
+    _full_cfg = yaml.safe_load(open("config.yaml", encoding="utf-8")) or {}
+    _ppe_cfg  = _full_cfg.get("ppe_pipeline", {})
+    _em_cfg   = _full_cfg.get("event_manager", {})
 
-    # Yangın boyut / büyüme filtreleri
     _fire_min_area      = float(_ppe_cfg.get("fire_min_area_ratio", 0.01))
     _fire_growth_window = int(  _ppe_cfg.get("fire_growth_window",  10))
     _fire_growth_factor = float(_ppe_cfg.get("fire_growth_factor",  1.5))
     _fire_area_history: deque = deque(maxlen=_fire_growth_window * 2)
+
     event_manager = PersonEventManager(
         new_confirm_sec      = float(_em_cfg.get("new_confirm_sec",      3.0)),
         resolved_confirm_sec = float(_em_cfg.get("resolved_confirm_sec", 5.0)),
@@ -695,15 +884,12 @@ def run(args):
     results_dir = Path("results")
     results_dir.mkdir(exist_ok=True)
 
-    # Eski event klasörlerini temizle
     try:
-        _cfg_full = yaml.safe_load(open("config.yaml", encoding="utf-8")) or {}
-        _keep = int(_cfg_full.get("results_keep_events", 50))
+        _keep = int(_full_cfg.get("results_keep_events", 50))
     except Exception:
         _keep = 50
     _cleanup_old_results(results_dir, _keep)
 
-    # Mevcut event sayısından devam et — yeniden başlatmada üzerine yazma
     existing = [d for d in results_dir.iterdir() if d.is_dir() and d.name.startswith("evt_")]
     start_counter = max((int(d.name.split("_")[1]) for d in existing), default=0)
     event_manager._counter = start_counter
@@ -722,13 +908,12 @@ def run(args):
 
     frame_idx         = 0
     event_count       = 0
-    seen_stable_pids: set[int] = set()   # bellek temizliği için (stable_pid bazlı)
+    seen_stable_pids: set[int] = set()
     _fire_raw         = False
     _fire_conf_max    = 0.0
     _smoke_raw        = False
     _smoke_conf_max   = 0.0
 
-    # Kamera izleme
     _cam_freeze_frames = int(_ppe_cfg.get("cam_freeze_frames", 60))
     _cam_dark_frames   = int(_ppe_cfg.get("cam_dark_frames",   60))
     _cam_freeze_diff   = float(_ppe_cfg.get("cam_freeze_diff",  0.002))
@@ -736,9 +921,9 @@ def run(args):
     _prev_gray:    "cv2.Mat | None" = None
     _freeze_cnt    = 0
     _dark_cnt      = 0
-    _cam_status    = "online"   # son bildirilen durum
+    _cam_status    = "online"
 
-    print("Basladi." + (" ESC = cikis." if display else " Ctrl+C = cikis.") + "\n")
+    print("Basladi." + (" ESC = cikis." if display else " Ctrl+C = cikis.") + f" [{mode.upper()} modu]\n")
 
     try:
         while True:
@@ -750,10 +935,9 @@ def run(args):
                 break
             frame_idx += 1
 
-            # --- Kamera donma / karartı kontrolü ---
+            # --- Kamera donma / karartı ---
             _gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             _brightness = cv2.mean(_gray)[0] / 255.0
-
             if _brightness < _cam_dark_thresh:
                 _dark_cnt   += 1
                 _freeze_cnt  = 0
@@ -766,7 +950,6 @@ def run(args):
                     else:
                         _freeze_cnt = 0
             _prev_gray = _gray
-
             _new_status = (
                 "dark"   if _dark_cnt   >= _cam_dark_frames   else
                 "frozen" if _freeze_cnt >= _cam_freeze_frames  else
@@ -776,7 +959,7 @@ def run(args):
                 _notify_camera_status(_new_status, args.camera_id, args.zone)
                 _cam_status = _new_status
 
-            # --- Kayıp track temizliği (bellek sızıntısı önleme) ---
+            # --- Bellek temizliği ---
             if frame_idx % STATES_CLEANUP_EVERY == 0 and seen_stable_pids:
                 stale = set(states.keys()) - seen_stable_pids
                 for pid in stale:
@@ -785,39 +968,38 @@ def run(args):
                     print(f"  [CLEANUP] {len(stale)} kayip stable_pid temizlendi. Kalan: {len(states)}")
                 seen_stable_pids.clear()
 
-            _do_ppe = (frame_idx % PPE_INFER_EVERY == 0)
+            # --- Person tracking (her iki modda ortak) ---
+            draw_frame = frame.copy()
+            fh, fw = frame.shape[:2]
 
-            # --- Person tracking ---
             p_result = person_model.track(
                 frame, classes=p_ids, tracker=TRACKER, persist=True,
                 imgsz=IMGSZ, conf=PERSON_CONF, device=device, verbose=False,
             )[0]
 
             persons_with_ppe: list[dict] = []
-            draw_frame = frame.copy()  # her zaman copy: bbox çizimi için
-            fh, fw = frame.shape[:2]
-
             boxes = p_result.boxes
-            # Tüm kişileri geometrik doğrulama için önceden topla
             all_persons_frame: list[dict] = []
             stable_map: dict[int, int] = {}
+
             if boxes is not None and boxes.id is not None:
                 all_persons_frame = [
                     {"tid": int(tid), "box": list(map(int, box.tolist()))}
                     for box, tid in zip(boxes.xyxy, boxes.id)
                 ]
-                # stable_pid: kısa oklüzyon sonrası aynı kişi yeni raw_tid alsa bile
-                # state ve event_manager aynı kimliği görür
                 stable_map = reattacher.update(all_persons_frame)
 
-            if boxes is not None and boxes.id is not None:
-                # ── Faz 1: crop toplama ──────────────────────────────────────────
+            # ════════════════════════════════════════════════════════════════
+            # PPE Detection — CROP modu
+            # ════════════════════════════════════════════════════════════════
+            if mode == "crop" and boxes is not None and boxes.id is not None:
+                _do_ppe = (frame_idx % PPE_INFER_EVERY == 0)
+
                 h_cands: list[dict] = []
                 v_cands: list[dict] = []
                 m_cands: list[dict] = []
                 person_coords: dict[int, tuple] = {}
 
-                # (stable_pid, track_id, crop, ox, oy)
                 h_batch: list[tuple] = []
                 v_batch: list[tuple] = []
                 m_batch: list[tuple] = []
@@ -843,14 +1025,13 @@ def run(args):
                         if _crop_ok(mcrop) and not is_region_too_small(x1, y1, x2, y2, "mask"):
                             m_batch.append((stable_pid, track_id, mcrop, mox, moy))
 
-                # ── Faz 1b: batch inference ──────────────────────────────────────
                 if h_batch:
                     h_results = helmet_model.predict(
                         [b[2] for b in h_batch], classes=h_ids, imgsz=IMGSZ,
-                        conf=HELMET_CONF, device=device, verbose=False,
+                        conf=CROP_HELMET_CONF, device=device, verbose=False,
                     )
                     for (stable_pid, track_id, hcrop, hox, hoy), hres in zip(h_batch, h_results):
-                        hdets = _collect_dets(helmet_model, hres, h_ids, HELMET_CONF)
+                        hdets = _collect_dets(helmet_model, hres, h_ids, CROP_HELMET_CONF)
                         if hdets:
                             best = max(hdets, key=lambda d: d["conf"])
                             hbbox_f = list(crop_to_frame(best["bbox"], hox, hoy, fh, fw))
@@ -877,10 +1058,10 @@ def run(args):
                 if v_batch:
                     v_results = vest_model.predict(
                         [b[2] for b in v_batch], classes=v_ids, imgsz=IMGSZ,
-                        conf=VEST_CONF, device=device, verbose=False,
+                        conf=CROP_VEST_CONF, device=device, verbose=False,
                     )
                     for (stable_pid, track_id, vcrop, vox, voy), vres in zip(v_batch, v_results):
-                        vdets = _collect_dets(vest_model, vres, v_ids, VEST_CONF)
+                        vdets = _collect_dets(vest_model, vres, v_ids, CROP_VEST_CONF)
                         if vdets:
                             best = max(vdets, key=lambda d: d["conf"])
                             vbbox_f = list(crop_to_frame(best["bbox"], vox, voy, fh, fw))
@@ -906,11 +1087,11 @@ def run(args):
 
                 if m_batch:
                     m_results = mask_model.predict(
-                        [b[2] for b in m_batch], classes=m_ids, imgsz=MASK_IMGSZ,
-                        conf=MASK_CONF, device=device, verbose=False,
+                        [b[2] for b in m_batch], classes=m_ids, imgsz=CROP_MASK_IMGSZ,
+                        conf=CROP_MASK_CONF, device=device, verbose=False,
                     )
                     for (stable_pid, track_id, mcrop, mox, moy), mres in zip(m_batch, m_results):
-                        mdets = _collect_dets(mask_model, mres, m_ids, MASK_CONF)
+                        mdets = _collect_dets(mask_model, mres, m_ids, CROP_MASK_CONF)
                         if mdets:
                             best = max(mdets, key=lambda d: d["conf"])
                             mbbox_f = list(crop_to_frame(best["bbox"], mox, moy, fh, fw))
@@ -934,20 +1115,18 @@ def run(args):
                                     accepted=False, reason="no_det",
                                 ))
 
-                # ── Faz 2: global one-to-one atama ──────────────────────────────
                 h_assigned = _global_assign_ppe(h_cands)
                 v_assigned = _global_assign_ppe(v_cands)
                 m_assigned = _global_assign_ppe(m_cands)
 
-                # ── Faz 3: oy güncelleme + persons_with_ppe + görüntü ───────────
                 for box, tid in zip(boxes.xyxy, boxes.id):
                     track_id   = int(tid)
                     stable_pid = stable_map.get(track_id, track_id)
                     x1, y1, x2, y2 = person_coords[stable_pid]
 
-                    hcand = h_assigned.get(stable_pid)
-                    hlabel = hcand["label"] if hcand else "unknown"
-                    hconf  = hcand["conf"]  if hcand else 0.0
+                    hcand  = h_assigned.get(stable_pid)
+                    hlabel = hcand["label"]  if hcand else "unknown"
+                    hconf  = hcand["conf"]   if hcand else 0.0
                     hbbox  = hcand["bbox_f"] if hcand else None
                     if _do_ppe:
                         if TELEMETRY and hcand:
@@ -960,9 +1139,9 @@ def run(args):
                         states[stable_pid]["hardhat"].append(hlabel)
                     hvote = vote(states[stable_pid]["hardhat"], min_known=3)
 
-                    vcand = v_assigned.get(stable_pid)
-                    vlabel = vcand["label"] if vcand else "unknown"
-                    vconf  = vcand["conf"]  if vcand else 0.0
+                    vcand  = v_assigned.get(stable_pid)
+                    vlabel = vcand["label"]  if vcand else "unknown"
+                    vconf  = vcand["conf"]   if vcand else 0.0
                     vbbox  = vcand["bbox_f"] if vcand else None
                     if _do_ppe:
                         if TELEMETRY and vcand:
@@ -975,9 +1154,9 @@ def run(args):
                         states[stable_pid]["vest"].append(vlabel)
                     vvote = vote(states[stable_pid]["vest"], min_known=2)
 
-                    mcand = m_assigned.get(stable_pid)
-                    mlabel = mcand["label"] if mcand else "unknown"
-                    mconf  = mcand["conf"]  if mcand else 0.0
+                    mcand  = m_assigned.get(stable_pid)
+                    mlabel = mcand["label"]  if mcand else "unknown"
+                    mconf  = mcand["conf"]   if mcand else 0.0
                     mbbox  = mcand["bbox_f"] if mcand else None
                     if _do_ppe:
                         if TELEMETRY and mcand:
@@ -990,15 +1169,14 @@ def run(args):
                         states[stable_pid]["mask"].append(mlabel)
                     mvote = vote(states[stable_pid]["mask"], min_known=1)
 
-                    # Ghost track filtresi: yeterince görülmemiş track'ları atla
                     if states[stable_pid]["frame_count"] < MIN_TRACK_FRAMES:
                         draw_box(draw_frame, x1, y1, x2, y2, "...", COLOR_UNKNOWN)
                         continue
 
                     color, viols = compliance_color(hvote, vvote, mvote)
                     persons_with_ppe.append({
-                        "track_id":     stable_pid,
-                        "violations":   viols,
+                        "track_id":      stable_pid,
+                        "violations":    viols,
                         "helmet_status": "ok" if hvote == "Hardhat" else "violation" if hvote == "NO-Hardhat" else "unknown",
                         "vest_status":   "ok" if vvote == "Safety Vest" else "violation" if vvote == "NO-Safety Vest" else "unknown",
                         "mask_status":   "ok" if mvote == "Mask" else "violation" if mvote == "NO-Mask" else "unknown",
@@ -1006,7 +1184,6 @@ def run(args):
                         "vest_conf":     round(vconf, 2),
                         "mask_conf":     round(mconf, 2),
                     })
-
                     draw_box(draw_frame, x1, y1, x2, y2, f"ID{stable_pid}", color)
                     ppe_items = [
                         (hbbox, hvote, hconf, "H",
@@ -1022,7 +1199,62 @@ def run(args):
                         draw_ppe_box(draw_frame, bbox[0], bbox[1], bbox[2], bbox[3],
                                      f"{vote_label[:8]}({conf:.2f})", c, tag)
 
-            # --- Fire / smoke detection (throttled) ---
+            # ════════════════════════════════════════════════════════════════
+            # PPE Detection — SCENE modu
+            # ════════════════════════════════════════════════════════════════
+            elif mode == "scene" and boxes is not None and boxes.id is not None:
+                scene_helmet_dets = _scene_dets(helmet_model, frame, h_ids_set, SCENE_HELMET_CONF, device)
+                scene_vest_dets   = _scene_dets(vest_model,   frame, v_ids_set, SCENE_VEST_CONF,   device)
+                scene_mask_dets   = _scene_dets(mask_model,   frame, m_ids_set, SCENE_MASK_CONF,   device)
+
+                for box, tid in zip(boxes.xyxy, boxes.id):
+                    track_id   = int(tid)
+                    stable_pid = stable_map.get(track_id, track_id)
+                    seen_stable_pids.add(stable_pid)
+                    states[stable_pid]["frame_count"] += 1
+                    x1, y1, x2, y2 = map(int, box.tolist())
+                    person_box = [x1, y1, x2, y2]
+
+                    hlabel, hconf, hbbox = _best_scene(scene_helmet_dets, person_box)
+                    states[stable_pid]["hardhat"].append(hlabel)
+                    hvote = vote(states[stable_pid]["hardhat"], min_known=3)
+
+                    vlabel, vconf, vbbox = _best_scene(scene_vest_dets, person_box)
+                    states[stable_pid]["vest"].append(vlabel)
+                    vvote = vote(states[stable_pid]["vest"], min_known=2)
+
+                    mlabel, mconf, mbbox = _best_scene(scene_mask_dets, person_box)
+                    states[stable_pid]["mask"].append(mlabel)
+                    mvote = vote(states[stable_pid]["mask"], min_known=1)
+
+                    color, viols = compliance_color(hvote, vvote, mvote)
+                    persons_with_ppe.append({
+                        "track_id":      stable_pid,
+                        "violations":    viols,
+                        "helmet_status": "ok" if hvote == "Hardhat" else "violation" if hvote == "NO-Hardhat" else "unknown",
+                        "vest_status":   "ok" if vvote == "Safety Vest" else "violation" if vvote == "NO-Safety Vest" else "unknown",
+                        "mask_status":   "ok" if mvote == "Mask" else "violation" if mvote == "NO-Mask" else "unknown",
+                        "helmet_conf":   round(hconf, 2),
+                        "vest_conf":     round(vconf, 2),
+                        "mask_conf":     round(mconf, 2),
+                    })
+                    draw_box(draw_frame, x1, y1, x2, y2, f"ID{stable_pid}", color)
+                    ppe_items = [
+                        (hbbox, hvote, hconf, "H",
+                         COLOR_OK if hvote == "Hardhat" else COLOR_DANGER if hvote == "NO-Hardhat" else COLOR_UNKNOWN),
+                        (vbbox, vvote, vconf, "V",
+                         COLOR_OK if vvote == "Safety Vest" else COLOR_DANGER if vvote == "NO-Safety Vest" else COLOR_UNKNOWN),
+                        (mbbox, mvote, mconf, "M",
+                         COLOR_OK if mvote == "Mask" else COLOR_WARN if mvote == "NO-Mask" else COLOR_UNKNOWN),
+                    ]
+                    for bbox, vote_label, conf, tag, c in ppe_items:
+                        if bbox is None or vote_label == "unknown":
+                            continue
+                        bx1, by1, bx2, by2 = [int(v) for v in bbox]
+                        draw_ppe_box(draw_frame, bx1, by1, bx2, by2,
+                                     f"{vote_label[:8]}({conf:.2f})", c, tag)
+
+            # --- Fire / smoke detection (throttled, her iki modda aynı) ---
             if frame_idx % FIRE_INFER_EVERY == 0:
                 fire_res = fire_model.predict(
                     frame, imgsz=IMGSZ, conf=FIRE_CONF, device=device, verbose=False,
@@ -1048,13 +1280,8 @@ def run(args):
                             _smoke_raw      = True
                             _smoke_conf_max = max(_smoke_conf_max, conf)
 
-                # Alan geçmişini güncelle (fire yoksa 0.0)
                 _fire_area_history.append(_max_fire_area)
-
-                # Büyüklük filtresi
-                _is_large = _max_fire_area >= _fire_min_area
-
-                # Büyüme hızı filtresi — yeterli geçmiş varsa hesapla
+                _is_large   = _max_fire_area >= _fire_min_area
                 _is_growing = False
                 if _max_fire_area > 0 and len(_fire_area_history) >= _fire_growth_window:
                     half      = _fire_growth_window // 2
@@ -1065,12 +1292,13 @@ def run(args):
 
                 if _fire_conf_max > 0 and (_is_large or _is_growing):
                     _fire_raw = True
+
             if _fire_raw or _smoke_raw:
                 label = "FIRE" if _fire_raw else "SMOKE"
                 cv2.putText(draw_frame, f"{label} DETECTED!", (10, 90),
                             cv2.FONT_HERSHEY_SIMPLEX, 1.0, COLOR_FIRE, 3)
 
-            # --- Event state machine ---
+            # --- Event state machine (ortak) ---
             event_info = event_manager.process_frame(persons_with_ppe, _fire_raw or _smoke_raw)
 
             if event_info["should_save"] and event_info.get("event_id"):
@@ -1084,7 +1312,6 @@ def run(args):
                     zone=args.zone,
                 )
 
-            # Doğal ihlal bitişi: closed geçişini DB'ye bildir (tek seferlik)
             if event_info["event_status"] == "closed" and event_info.get("event_id"):
                 threading.Thread(
                     target=_close_event,
@@ -1115,10 +1342,15 @@ def run(args):
             cv2.destroyAllWindows()
         _notify_camera_status("online", args.camera_id, args.zone)
         print(f"\nToplam frame: {frame_idx} | Kaydedilen event: {event_count}")
-        print(f"Sonuclar: results/")
-        # Video sonu: aktif event varsa resolve et
+        print("Sonuclar: results/")
         if event_manager._active is not None:
             _close_event(event_manager._active.event_id)
+        pending = [t for t in _llm_threads if t.is_alive()]
+        if pending:
+            print(f"  LLM thread'leri bekleniyor ({len(pending)} adet)...")
+            for t in pending:
+                t.join(timeout=180)
+        _llm_threads.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -1126,14 +1358,16 @@ def run(args):
 # ---------------------------------------------------------------------------
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Factory Safety — crop-based PPE pipeline")
+    parser = argparse.ArgumentParser(description="Factory Safety — birleşik PPE pipeline")
     src = parser.add_mutually_exclusive_group()
     src.add_argument("--video",     help="Video dosyasi yolu")
     src.add_argument("--camera",    default=0, help="Kamera indeksi (varsayilan: 0)")
-    parser.add_argument("--device",    default=_DEVICE, help="cuda device veya cpu")
-    parser.add_argument("--display",   action="store_true", help="OpenCV penceresi goster (varsayilan: kapali)")
-    parser.add_argument("--camera-id", default=None, help="Kamera kimligi (orn: cam_01)")
-    parser.add_argument("--zone",      default=None, help="Kamera bolgesi (orn: Uretim Hatti A)")
+    parser.add_argument("--mode",       default="crop", choices=["crop", "scene"],
+                        help="Detection modu: crop-based veya scene-based (varsayilan: crop)")
+    parser.add_argument("--device",     default=_DEVICE, help="cuda device veya cpu")
+    parser.add_argument("--display",    action="store_true", help="OpenCV penceresi goster")
+    parser.add_argument("--camera-id",  default=None, help="Kamera kimligi (orn: cam_01)")
+    parser.add_argument("--zone",       default=None, help="Kamera bolgesi (orn: Uretim Hatti A)")
     return parser.parse_args()
 
 

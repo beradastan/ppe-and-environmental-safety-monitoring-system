@@ -81,8 +81,8 @@ export function fetchPipelineStatus() {
   return _get('/api/pipeline/status')
 }
 
-export function startPipeline({ source, camera_id = '', zone = '' }) {
-  return _post('/api/pipeline/start', { source, camera_id, zone })
+export function startPipeline({ source, camera_id = '', zone = '', mode = 'crop' }) {
+  return _post('/api/pipeline/start', { source, camera_id, zone, mode })
 }
 
 export function stopPipeline() {

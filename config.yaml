@@ -32,11 +32,16 @@ llm:
 models:
   device: cuda
   fire_model: models/bera/fire_smoke_other_agent_final_best.pt
-  helmet_model: models/bera/crophelmet_agent_final_best.pt
-  mask_imgsz: 640
-  mask_model: models/bera/cropmask_agent_final_best.pt
   person_model: models/person_agent_scene_vinayakstyle_best.pt
-  vest_model: models/bera/cropvest_agent_final_best.pt
+  crop:
+    helmet_model: models/bera/crophelmet_agent_final_best.pt
+    vest_model: models/bera/cropvest_agent_final_best.pt
+    mask_model: models/bera/cropmask_agent_final_best.pt
+    mask_imgsz: 640
+  scene:
+    helmet_model: models/vinayak_trained_byBera/helmet_agent_final_best.pt
+    vest_model: models/vinayak_trained_byBera/vest_agent_final_best.pt
+    mask_model: models/mask_agent_scene_200ep_yolov8m_best.pt
 ppe_pipeline:
   cam_dark_frames: 60
   cam_dark_thresh: 0.03

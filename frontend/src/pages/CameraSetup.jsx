@@ -11,8 +11,9 @@ export default function CameraSetup() {
   const [browsing, setBrowsing]       = useState(false)
   const [cameraId, setCameraId]       = useState('')
   const [zone, setZone]               = useState('')
+  const [detMode, setDetMode]         = useState('crop')      // 'crop' | 'scene'
   const [devices, setDevices]         = useState([])   // MediaDeviceInfo[]
-  const [status, setStatus]           = useState({ running: false, source: '', camera_id: '', zone: '' })
+  const [status, setStatus]           = useState({ running: false, source: '', camera_id: '', zone: '', mode: '' })
   const [busy, setBusy]               = useState(false)
   const [error, setError]             = useState('')
   const pollRef = useRef(null)
@@ -60,6 +61,7 @@ export default function CameraSetup() {
         source,
         camera_id: cameraId.trim(),
         zone: zone.trim(),
+        mode: detMode,
       })
       if (!res.ok) setError(res.error || 'Başlatılamadı.')
       else setStatus(s => ({ ...s, running: true }))
@@ -95,6 +97,7 @@ export default function CameraSetup() {
           <span>Aktif kaynak: <strong>{status.source}</strong></span>
           {status.camera_id && <span>Kamera ID: <strong>{status.camera_id}</strong></span>}
           {status.zone      && <span>Bölge: <strong>{status.zone}</strong></span>}
+          {status.mode      && <span>Mod: <strong>{status.mode === 'crop' ? 'Crop-Based' : 'Scene-Based'}</strong></span>}
         </div>
       )}
 
@@ -167,6 +170,32 @@ export default function CameraSetup() {
                 </button>
               </div>
             )}
+          </div>
+
+          {/* Detection mode card */}
+          <div className="cs-card">
+            <div className="cs-card__label">Detection Modu</div>
+            <div className="cs-tabs">
+              <button
+                className={`cs-tab ${detMode === 'crop' ? 'cs-tab--active' : ''}`}
+                onClick={() => setDetMode('crop')}
+                disabled={running}
+              >
+                Crop-Based
+              </button>
+              <button
+                className={`cs-tab ${detMode === 'scene' ? 'cs-tab--active' : ''}`}
+                onClick={() => setDetMode('scene')}
+                disabled={running}
+              >
+                Scene-Based
+              </button>
+            </div>
+            <p className="cs-mode-desc">
+              {detMode === 'crop'
+                ? 'Kişi kırpılarak her PPE modeli ayrı çalışır. Daha hassas, kalabalık sahnelerde daha iyi.'
+                : 'Tam kare üzerinde PPE tespiti yapılır. Daha hızlı, geniş açı sahnelerde etkili.'}
+            </p>
           </div>
 
           {/* Settings card */}

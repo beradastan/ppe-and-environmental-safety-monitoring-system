@@ -474,6 +474,7 @@ _pipeline_proc:      "_subprocess.Popen | None" = None
 _pipeline_source:    str = ""
 _pipeline_camera_id: str = ""
 _pipeline_zone:      str = ""
+_pipeline_mode:      str = "crop"
 _STREAM_FRAME_PATH = _os.path.join(_tempfile.gettempdir(), "factory_safety_stream.jpg")
 _VIDEO_EXTS = {'.mp4', '.avi', '.mov', '.mkv', '.webm'}
 
@@ -489,6 +490,7 @@ def api_pipeline_status():
         "source":    _pipeline_source    if running else "",
         "camera_id": _pipeline_camera_id if running else "",
         "zone":      _pipeline_zone      if running else "",
+        "mode":      _pipeline_mode      if running else "",
     })
 
 
@@ -515,13 +517,16 @@ def api_pipeline_browse():
 
 @app.route("/api/pipeline/start", methods=["POST"])
 def api_pipeline_start():
-    global _pipeline_proc, _pipeline_source, _pipeline_camera_id, _pipeline_zone
+    global _pipeline_proc, _pipeline_source, _pipeline_camera_id, _pipeline_zone, _pipeline_mode
     if _pipeline_proc is not None and _pipeline_proc.poll() is None:
         return jsonify({"ok": False, "error": "Pipeline zaten calisiyor."})
     body      = request.get_json(silent=True) or {}
     source    = str(body.get("source", "")).strip()
     camera_id = str(body.get("camera_id", "")).strip()
     zone      = str(body.get("zone", "")).strip()
+    mode      = str(body.get("mode", "crop")).strip()
+    if mode not in ("crop", "scene"):
+        mode = "crop"
     if not source:
         abort(400, "Kaynak belirtilmedi.")
     try:
@@ -530,7 +535,7 @@ def api_pipeline_start():
     except Exception:
         _device = "cpu"
     cmd = [sys.executable, str(PROJECT_ROOT / "run_live_video.py"),
-           "--display", "--device", _device]
+           "--display", "--device", _device, "--mode", mode]
     if source.isdigit():
         cmd += ["--camera", source]
     else:
@@ -550,12 +555,13 @@ def api_pipeline_start():
     _pipeline_source    = source
     _pipeline_camera_id = camera_id
     _pipeline_zone      = zone
+    _pipeline_mode      = mode
     return jsonify({"ok": True})
 
 
 @app.route("/api/pipeline/stop", methods=["POST"])
 def api_pipeline_stop():
-    global _pipeline_proc, _pipeline_source, _pipeline_camera_id, _pipeline_zone
+    global _pipeline_proc, _pipeline_source, _pipeline_camera_id, _pipeline_zone, _pipeline_mode
     if _pipeline_proc is None or _pipeline_proc.poll() is not None:
         _pipeline_proc = None
     else:
@@ -564,6 +570,7 @@ def api_pipeline_stop():
     _pipeline_source    = ""
     _pipeline_camera_id = ""
     _pipeline_zone      = ""
+    _pipeline_mode      = "crop"
     return jsonify({"ok": True})
 
 
