@@ -296,6 +296,14 @@ export default function CameraSetup() {
                       <span className="cs-status-val">{status.zone}</span>
                     </div>
                   )}
+                  {status.mode && (
+                    <div className="cs-status-row">
+                      <span className="cs-status-key">Detection</span>
+                      <span className="cs-status-val">
+                        {status.mode === 'crop' ? 'Crop-Based' : 'Scene-Based'}
+                      </span>
+                    </div>
+                  )}
                 </>
               )}
             </div>
