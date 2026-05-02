@@ -178,8 +178,7 @@ class ReportSummaryService:
                 dt = datetime.fromisoformat(e.get("created_at"))
                 hour_str = f"{dt.hour:02d}:00"
                 hourly_dist[hour_str] = hourly_dist.get(hour_str, 0) + 1
-            except:
-                pass
+            except (ValueError, TypeError):\n                pass
         hourly_list = [{"hour": k, "event_count": v} for k, v in sorted(hourly_dist.items())]
 
         prev_date = (datetime.strptime(target_date, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
@@ -208,8 +207,7 @@ class ReportSummaryService:
             try:
                 dt_str = datetime.fromisoformat(e.get("created_at")).strftime("%Y-%m-%d")
                 daily_dist[dt_str] = daily_dist.get(dt_str, 0) + 1
-            except:
-                pass
+            except (ValueError, TypeError):\n                pass
         daily_list = [{"date": k, "event_count": v} for k, v in sorted(daily_dist.items())]
         most_active_day = max(daily_list, key=lambda x: x["event_count"], default={"date": "N/A", "event_count": 0})
 
@@ -248,8 +246,7 @@ class ReportSummaryService:
                 week = dt.isocalendar()[1]
                 week_str = f"{year}-W{week}"
                 weekly_breakdown_dict[week_str] = weekly_breakdown_dict.get(week_str, 0) + 1
-            except:
-                pass
+            except (ValueError, TypeError):\n                pass
         weekly_breakdown = [{"week": k, "event_count": v} for k, v in sorted(weekly_breakdown_dict.items())]
 
         start_dt = datetime.strptime(start_date, "%Y-%m-%d")

@@ -346,7 +346,12 @@ def _run_llm_and_save(period: str, date_str: str | None, auto_generated: bool = 
         summary = svc.generate_monthly_summary(start, end)
 
     try:
-        text = SafetyReportAgent().generate_report(summary)
+        _llm_cfg = _load_config().get("llm", {})
+        text = SafetyReportAgent(
+            ollama_base_url=_llm_cfg.get("base_url", "http://localhost:11434"),
+            model_name=_llm_cfg.get("model", "qwen3:8b"),
+            timeout=int(_llm_cfg.get("timeout", 120)),
+        ).generate_report(summary)
         save_llm_report(period, start, text, auto_generated=auto_generated)
         socketio.emit("report_llm_ready", {
             "period": period, "date": date_str or "",

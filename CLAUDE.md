@@ -8,7 +8,7 @@ Fabrika içi iş güvenliği izleme sistemi. YOLO + ByteTrack ile PPE (baret/yel
 - **Frontend:** React + Vite (`frontend/`), port 5173/5174
 - **DB:** PostgreSQL — host: localhost:5432, db: ppe_db, user: postgres, password: 1234
 - **Detection:** `run_live_video.py` — YOLO crop-based PPE pipeline, ByteTrack
-- **LLM:** Ollama + qwen3:8b (periyodik özet raporlar için)
+- **LLM:** Ollama — model config.yaml `llm.model`'dan okunur (varsayılan qwen3:8b), periyodik özet raporlar için
 - **GPU:** RTX 3060 6GB
 
 ## Çalıştırma
