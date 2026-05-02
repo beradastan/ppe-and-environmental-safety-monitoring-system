@@ -30,7 +30,7 @@ def _ts(val) -> str:
 
 def _row_to_event(row) -> dict:
     # (event_id, event_status, updated_at, repeat_count,
-    #  duration_sec, signature, llm_report, has_image)
+    #  duration_sec, signature, llm_report, has_image, camera_id, zone)
     return {
         "event_id":      row[0],
         "event_status":  row[1],
@@ -40,6 +40,8 @@ def _row_to_event(row) -> dict:
         "signature":     row[5] or {},
         "llm_report":    row[6],
         "has_image":     bool(row[7]),
+        "camera_id":     row[8],
+        "zone":          row[9],
     }
 
 
@@ -57,7 +59,9 @@ def _base_query() -> str:
                 SELECT 1 FROM event_timeline t
                 WHERE t.event_id = e.event_id
                   AND t.image_filename IS NOT NULL
-            ) AS has_image
+            ) AS has_image,
+            e.camera_id,
+            e.zone
         FROM events e
     """
 
@@ -238,21 +242,35 @@ def get_report_data(period: str, date_str: str | None = None) -> list[dict]:
 
         return [{"label": k, **v} for k, v in sorted(buckets.items())]
 
-    n_days = 7 if period == "weekly" else 30
-    days   = [(today - timedelta(days=i)).isoformat() for i in range(n_days - 1, -1, -1)]
+    import calendar as _cal
+    anchor = date.fromisoformat(date_str) if date_str else today
+
+    if period == "weekly":
+        # Pazartesi → Pazar (veya bugün)
+        start_d = anchor - timedelta(days=anchor.weekday())
+        end_d   = min(start_d + timedelta(days=6), today)
+        days = [(start_d + timedelta(days=i)).isoformat()
+                for i in range((end_d - start_d).days + 1)]
+    else:
+        # Ayın 1'i → son günü (veya bugün)
+        start_d = anchor.replace(day=1)
+        last    = _cal.monthrange(start_d.year, start_d.month)[1]
+        end_d   = min(start_d.replace(day=last), today)
+        days = [(start_d + timedelta(days=i)).isoformat()
+                for i in range((end_d - start_d).days + 1)]
+
     buckets = {d: _empty() for d in days}
 
     with db_cursor() as cur:
-        start = days[0]
         cur.execute(
             """
             SELECT
                 DATE(updated_at)::text AS day,
                 helmet_violation, vest_violation, mask_violation, fire_detected
             FROM events
-            WHERE DATE(updated_at) >= %s
+            WHERE DATE(updated_at) BETWEEN %s AND %s
             """,
-            (start,),
+            (days[0], days[-1]),
         )
         for row in cur.fetchall():
             key = row[0]
@@ -324,3 +342,63 @@ def save_note(event_id: str, text: str) -> dict:
     from .writer import write_note
     ts = write_note(event_id, text)
     return {"text": text, "timestamp": ts.isoformat()}
+
+
+# ---------------------------------------------------------------------------
+# Kaydedilmiş LLM raporları
+# ---------------------------------------------------------------------------
+
+def get_saved_reports(period: str | None = None, limit: int = 50) -> list[dict]:
+    with db_cursor() as cur:
+        if period:
+            cur.execute(
+                """
+                SELECT id, period, report_date, generated_at, auto_generated
+                FROM llm_reports
+                WHERE period = %s
+                ORDER BY report_date DESC LIMIT %s
+                """,
+                (period, limit),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT id, period, report_date, generated_at, auto_generated
+                FROM llm_reports
+                ORDER BY report_date DESC LIMIT %s
+                """,
+                (limit,),
+            )
+        rows = cur.fetchall()
+    return [
+        {
+            "id":            r[0],
+            "period":        r[1],
+            "report_date":   r[2],
+            "generated_at":  _ts(r[3]),
+            "auto_generated": bool(r[4]),
+        }
+        for r in rows
+    ]
+
+
+def get_saved_report(report_id: int) -> dict | None:
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, period, report_date, llm_text, generated_at, auto_generated
+            FROM llm_reports WHERE id = %s
+            """,
+            (report_id,),
+        )
+        r = cur.fetchone()
+    if not r:
+        return None
+    return {
+        "id":            r[0],
+        "period":        r[1],
+        "report_date":   r[2],
+        "llm_text":      r[3],
+        "generated_at":  _ts(r[4]),
+        "auto_generated": bool(r[5]),
+    }

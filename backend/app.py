@@ -53,6 +53,9 @@ _PPE_PIPELINE_DEFAULTS = {
     "fire_conf": 0.50, "person_conf": 0.25, "temporal_window": 10,
     "use_helmet": True, "use_vest": True, "use_mask": True, "use_fire": True,
     "new_confirm_sec": 3.0,
+    "fire_min_area_ratio": 0.01,
+    "fire_growth_window":  10,
+    "fire_growth_factor":  1.5,
 }
 
 
@@ -165,7 +168,7 @@ _FILENAME_RE = re.compile(r"^evt_\d+_(new|update_\d+|closed)\.jpg$")
 _PERIOD_RE   = re.compile(r"^(daily|weekly|monthly)$")
 _DATE_RE     = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _VT_RE       = re.compile(r"^(helmet|vest|mask|fire)$")
-_STATUS_RE   = re.compile(r"^(new|active|update)$")
+_STATUS_RE   = re.compile(r"^(new|active|update|closed)$")
 
 # ---------------------------------------------------------------------------
 # Flask + Socket.IO
@@ -255,17 +258,39 @@ def api_get_reports():
     return jsonify({"period": period, "data": data})
 
 
+def _wide_fetch_start(period: str, start: str) -> str:
+    """Karşılaştırma için önceki dönemi de kapsayan başlangıç tarihi."""
+    from datetime import date as _date, timedelta
+    import calendar
+    s = _date.fromisoformat(start)
+    if period == "daily":
+        return (s - timedelta(days=1)).isoformat()
+    if period == "weekly":
+        return (s - timedelta(days=7)).isoformat()
+    # monthly: bir önceki ayın 1'i
+    if s.month == 1:
+        return _date(s.year - 1, 12, 1).isoformat()
+    return _date(s.year, s.month - 1, 1).isoformat()
+
+
 def _summary_date_range(period: str, date_str: str | None):
     from datetime import date as _date, timedelta
+    import calendar
     today = _date.today()
     if period == "daily":
         d = _date.fromisoformat(date_str) if date_str else today
         return d.isoformat(), d.isoformat()
     if period == "weekly":
-        end = today
-        return (today - timedelta(days=6)).isoformat(), end.isoformat()
-    end = today
-    return (today - timedelta(days=29)).isoformat(), end.isoformat()
+        anchor = _date.fromisoformat(date_str) if date_str else today
+        start  = anchor - timedelta(days=anchor.weekday())   # Pazartesi
+        end    = min(start + timedelta(days=6), today)       # Pazar veya bugün
+        return start.isoformat(), end.isoformat()
+    # monthly
+    anchor    = _date.fromisoformat(date_str) if date_str else today
+    start     = anchor.replace(day=1)
+    last_day  = calendar.monthrange(start.year, start.month)[1]
+    end       = min(start.replace(day=last_day), today)
+    return start.isoformat(), end.isoformat()
 
 
 @app.route("/api/reports/summary")
@@ -285,9 +310,10 @@ def api_get_report_summary():
     from backend.database.reader import get_events_for_summary
     from backend.reports.services import EventAnalyticsService, ReportSummaryService
 
-    events   = get_events_for_summary(start, end)
+    fetch_start = _wide_fetch_start(period, start)
+    events    = get_events_for_summary(fetch_start, end)
     analytics = EventAnalyticsService(events)
-    svc      = ReportSummaryService(analytics)
+    svc       = ReportSummaryService(analytics)
 
     if period == "daily":
         summary = svc.generate_daily_summary(start)
@@ -299,25 +325,17 @@ def api_get_report_summary():
     return jsonify(summary)
 
 
-@app.route("/api/reports/summary/llm", methods=["POST"])
-def api_generate_report_llm():
-    import threading as _threading
-    period   = request.args.get("period", "weekly")
-    date_str = request.args.get("date", "") or None
-    if not _PERIOD_RE.match(period):
-        abort(400, "period: daily|weekly|monthly")
-
-    if not _USE_DB:
-        return jsonify({"error": "requires database mode"}), 503
-
-    start, end = _summary_date_range(period, date_str)
-
+def _run_llm_and_save(period: str, date_str: str | None, auto_generated: bool = False) -> None:
+    """LLM raporu üret, DB'ye kaydet, socket ile bildir."""
     from backend.database.reader import get_events_for_summary
+    from backend.database.writer import save_llm_report
     from backend.reports.services import EventAnalyticsService, ReportSummaryService
     from llm.safety_report_agent import SafetyReportAgent
 
-    events    = get_events_for_summary(start, end)
-    analytics = EventAnalyticsService(events)
+    start, end  = _summary_date_range(period, date_str)
+    fetch_start = _wide_fetch_start(period, start)
+    events      = get_events_for_summary(fetch_start, end)
+    analytics   = EventAnalyticsService(events)
     svc       = ReportSummaryService(analytics)
 
     if period == "daily":
@@ -327,16 +345,85 @@ def api_generate_report_llm():
     else:
         summary = svc.generate_monthly_summary(start, end)
 
-    def _run(summary_data, p, d):
-        try:
-            text = SafetyReportAgent().generate_report(summary_data)
-            socketio.emit("report_llm_ready", {"period": p, "date": d or "", "llm_text": text})
-        except Exception as exc:
-            logger.error("LLM rapor hatasi: %s", exc)
-            socketio.emit("report_llm_error", {"period": p, "date": d or "", "error": str(exc)})
+    try:
+        text = SafetyReportAgent().generate_report(summary)
+        save_llm_report(period, start, text, auto_generated=auto_generated)
+        socketio.emit("report_llm_ready", {
+            "period": period, "date": date_str or "",
+            "llm_text": text, "auto_generated": auto_generated,
+        })
+        if auto_generated:
+            logger.info("Otomatik %s raporu oluşturuldu (%s).", period, start)
+    except Exception as exc:
+        logger.error("LLM rapor hatasi (%s): %s", period, exc)
+        socketio.emit("report_llm_error", {"period": period, "date": date_str or "", "error": str(exc)})
 
-    _threading.Thread(target=_run, args=(summary, period, date_str), daemon=True).start()
+
+def _start_report_scheduler() -> None:
+    """Gece 23:55'te günlük, Pazar günlük+haftalık, ay sonu aylık rapor üretir."""
+    import threading as _th
+    import time as _ti
+    from datetime import datetime as _dt, timedelta as _td
+
+    _ran: dict[str, str] = {}
+
+    def _loop():
+        while True:
+            now   = _dt.now()
+            today = now.strftime("%Y-%m-%d")
+            if now.hour == 23 and now.minute == 55:
+                if _ran.get("daily") != today:
+                    _ran["daily"] = today
+                    _th.Thread(target=_run_llm_and_save, args=("daily", None, True), daemon=True).start()
+                if now.weekday() == 6 and _ran.get("weekly") != today:
+                    _ran["weekly"] = today
+                    _th.Thread(target=_run_llm_and_save, args=("weekly", None, True), daemon=True).start()
+                tomorrow = now + _td(days=1)
+                if tomorrow.month != now.month and _ran.get("monthly") != today:
+                    _ran["monthly"] = today
+                    _th.Thread(target=_run_llm_and_save, args=("monthly", None, True), daemon=True).start()
+            _ti.sleep(30)
+
+    _th.Thread(target=_loop, daemon=True, name="report-scheduler").start()
+    logger.info("Rapor zamanlayıcısı başlatıldı.")
+
+
+@app.route("/api/reports/summary/llm", methods=["POST"])
+def api_generate_report_llm():
+    import threading as _threading
+    period   = request.args.get("period", "weekly")
+    date_str = request.args.get("date", "") or None
+    if not _PERIOD_RE.match(period):
+        abort(400, "period: daily|weekly|monthly")
+    if not _USE_DB:
+        return jsonify({"error": "requires database mode"}), 503
+
+    _threading.Thread(
+        target=_run_llm_and_save, args=(period, date_str, False), daemon=True
+    ).start()
     return jsonify({"ok": True, "pending": True})
+
+
+@app.route("/api/reports/saved")
+def api_get_saved_reports():
+    if not _USE_DB:
+        return jsonify({"error": "requires database mode"}), 503
+    period = request.args.get("period") or None
+    if period and not _PERIOD_RE.match(period):
+        abort(400, "period: daily|weekly|monthly")
+    from backend.database.reader import get_saved_reports
+    return jsonify({"reports": get_saved_reports(period=period)})
+
+
+@app.route("/api/reports/saved/<int:report_id>")
+def api_get_saved_report(report_id: int):
+    if not _USE_DB:
+        return jsonify({"error": "requires database mode"}), 503
+    from backend.database.reader import get_saved_report
+    r = get_saved_report(report_id)
+    if r is None:
+        abort(404)
+    return jsonify(r)
 
 
 @app.route("/api/events/<event_id>/close", methods=["PATCH"])
@@ -447,6 +534,16 @@ def api_pipeline_stop():
     return jsonify({"ok": True})
 
 
+@app.route("/api/pipeline/camera-status", methods=["POST"])
+def api_camera_status():
+    body      = request.get_json(silent=True) or {}
+    status    = str(body.get("status",    "online"))
+    camera_id = str(body.get("camera_id", ""))
+    zone      = str(body.get("zone",      ""))
+    socketio.emit("camera_status", {"status": status, "camera_id": camera_id, "zone": zone})
+    return jsonify({"ok": True})
+
+
 @app.route("/api/stream/frame")
 def api_stream_frame():
     try:
@@ -498,6 +595,8 @@ def main() -> None:
     global watcher
     watcher = ResultsWatcher(RESULTS_DIR, socketio)
     watcher.start()
+    if _USE_DB:
+        _start_report_scheduler()
     logger.info(f"Backend başlıyor → http://{HOST}:{PORT}")
     logger.info(f"Results dizini: {RESULTS_DIR}")
     try:

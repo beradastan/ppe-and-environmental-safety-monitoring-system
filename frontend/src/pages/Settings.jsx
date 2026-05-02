@@ -14,6 +14,12 @@ const INT_FIELDS = [
   { key: 'temporal_window',    label: 'Temporal Pencere (frame)', min: 3,  max: 30, step: 1 },
 ]
 
+const FIRE_FILTER_FIELDS = [
+  { key: 'fire_min_area_ratio', label: 'Min. Alan Oranı (frame %)', min: 0.001, max: 0.10,  step: 0.001 },
+  { key: 'fire_growth_factor',  label: 'Büyüme Faktörü',            min: 1.1,   max: 3.0,   step: 0.1   },
+  { key: 'fire_growth_window',  label: 'Büyüme Penceresi (adım)',   min: 3,     max: 30,    step: 1     },
+]
+
 const TIME_FIELDS = [
   { key: 'new_confirm_sec', label: 'Alarm Onay Süresi (s)', min: 0.5, max: 10, step: 0.5 },
 ]
@@ -115,6 +121,22 @@ export default function Settings() {
           ))}
         </section>
 
+        <section className="settings-section">
+          <h3 className="settings-section__title">Yangın Filtresi</h3>
+          <p className="settings-section__hint">
+            Alan oranı: frame'in en az bu yüzdesi kadar büyük alev → alarm.<br/>
+            Büyüme faktörü: son yarı / ilk yarı &gt; bu değer ise büyüyen alev → alarm.
+          </p>
+          {FIRE_FILTER_FIELDS.map(f => (
+            <SliderRow
+              key={f.key}
+              field={f}
+              value={cfg[f.key]}
+              onChange={v => handleChange(f.key, v)}
+            />
+          ))}
+        </section>
+
         <div className="settings-footer">
           <button className="settings-save-btn" type="submit" disabled={saving}>
             {saving ? 'Kaydediliyor…' : 'Kaydet'}
@@ -140,7 +162,7 @@ function SliderRow({ field, value, onChange }) {
         onChange={e => onChange(parseFloat(e.target.value))}
         className="slider-input"
       />
-      <span className="slider-val">{Number(value).toFixed(field.step < 1 ? 2 : 0)}</span>
+      <span className="slider-val">{Number(value).toFixed(field.step < 0.01 ? 3 : field.step < 1 ? 2 : 0)}</span>
     </div>
   )
 }

@@ -68,16 +68,31 @@ def _build_alarm_text(event_type: str, persons: list[dict]) -> str:
     return f"PPE ihlali: {ppe_str}."
 
 
-def _close_event(event_id: str) -> None:
-    """Backend'e PATCH /api/events/<id>/close çağrısı yapar (thread-safe)."""
+def _get_backend_url() -> str:
     try:
         with open("config.yaml", encoding="utf-8") as f:
             _b = (yaml.safe_load(f) or {}).get("backend", {})
-        backend_url = f"http://localhost:{_b.get('port', 5050)}"
+        return f"http://localhost:{_b.get('port', 5050)}"
     except Exception:
-        backend_url = "http://localhost:5050"
+        return "http://localhost:5050"
+
+
+def _notify_camera_status(status: str, camera_id: str | None = None, zone: str | None = None) -> None:
     try:
-        requests.patch(f"{backend_url}/api/events/{event_id}/close", timeout=5)
+        requests.post(
+            f"{_get_backend_url()}/api/pipeline/camera-status",
+            json={"status": status, "camera_id": camera_id or "", "zone": zone or ""},
+            timeout=2,
+        )
+        print(f"  [KAMERA] Durum: {status}")
+    except Exception:
+        pass
+
+
+def _close_event(event_id: str) -> None:
+    """Backend'e PATCH /api/events/<id>/close çağrısı yapar (thread-safe)."""
+    try:
+        requests.patch(f"{_get_backend_url()}/api/events/{event_id}/close", timeout=5)
         print(f"  [CLOSE] {event_id} kapatildi.")
     except Exception as e:
         print(f"  [CLOSE] Hata: {e}")
@@ -108,7 +123,7 @@ HELMET_PAD   = 0.80
 VEST_PAD     = 0.60
 MASK_PAD     = 0.80
 HELMET_CONF  = 0.15
-VEST_CONF    = 0.30
+VEST_CONF    = 0.35
 MASK_CONF    = 0.10
 MASK_IMGSZ   = int(_MODEL_CFG.get("mask_imgsz", 1280))  # config.yaml models.mask_imgsz
 FIRE_CONF    = 0.75  # yükseltildi: kum/yelek false positive bastırma (eski: 0.50)
@@ -648,6 +663,12 @@ def run(args):
     _full_cfg  = yaml.safe_load(open("config.yaml", encoding="utf-8")) or {}
     _ppe_cfg   = _full_cfg.get("ppe_pipeline", {})
     _em_cfg    = _full_cfg.get("event_manager", {})
+
+    # Yangın boyut / büyüme filtreleri
+    _fire_min_area      = float(_ppe_cfg.get("fire_min_area_ratio", 0.01))
+    _fire_growth_window = int(  _ppe_cfg.get("fire_growth_window",  10))
+    _fire_growth_factor = float(_ppe_cfg.get("fire_growth_factor",  1.5))
+    _fire_area_history: deque = deque(maxlen=_fire_growth_window * 2)
     event_manager = PersonEventManager(
         new_confirm_sec      = float(_em_cfg.get("new_confirm_sec",      3.0)),
         resolved_confirm_sec = float(_em_cfg.get("resolved_confirm_sec", 5.0)),
@@ -702,14 +723,53 @@ def run(args):
     _smoke_raw        = False
     _smoke_conf_max   = 0.0
 
+    # Kamera izleme
+    _cam_freeze_frames = int(_ppe_cfg.get("cam_freeze_frames", 60))
+    _cam_dark_frames   = int(_ppe_cfg.get("cam_dark_frames",   60))
+    _cam_freeze_diff   = float(_ppe_cfg.get("cam_freeze_diff",  0.002))
+    _cam_dark_thresh   = float(_ppe_cfg.get("cam_dark_thresh",  0.03))
+    _prev_gray:    "cv2.Mat | None" = None
+    _freeze_cnt    = 0
+    _dark_cnt      = 0
+    _cam_status    = "online"   # son bildirilen durum
+
     print("Basladi." + (" ESC = cikis." if display else " Ctrl+C = cikis.") + "\n")
 
     try:
         while True:
             ok, frame = cap.read()
             if not ok:
+                if _cam_status != "offline":
+                    _notify_camera_status("offline", args.camera_id, args.zone)
+                    _cam_status = "offline"
                 break
             frame_idx += 1
+
+            # --- Kamera donma / karartı kontrolü ---
+            _gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            _brightness = cv2.mean(_gray)[0] / 255.0
+
+            if _brightness < _cam_dark_thresh:
+                _dark_cnt   += 1
+                _freeze_cnt  = 0
+            else:
+                _dark_cnt = 0
+                if _prev_gray is not None:
+                    _diff = cv2.absdiff(_gray, _prev_gray)
+                    if cv2.mean(_diff)[0] / 255.0 < _cam_freeze_diff:
+                        _freeze_cnt += 1
+                    else:
+                        _freeze_cnt = 0
+            _prev_gray = _gray
+
+            _new_status = (
+                "dark"   if _dark_cnt   >= _cam_dark_frames   else
+                "frozen" if _freeze_cnt >= _cam_freeze_frames  else
+                "online"
+            )
+            if _new_status != _cam_status:
+                _notify_camera_status(_new_status, args.camera_id, args.zone)
+                _cam_status = _new_status
 
             # --- Kayıp track temizliği (bellek sızıntısı önleme) ---
             if frame_idx % STATES_CLEANUP_EVERY == 0 and seen_stable_pids:
@@ -966,17 +1026,40 @@ def run(args):
                 _fire_conf_max  = 0.0
                 _smoke_raw      = False
                 _smoke_conf_max = 0.0
+                _frame_area     = frame.shape[0] * frame.shape[1] or 1
+                _max_fire_area  = 0.0
+
                 if fire_res.boxes:
                     for box in fire_res.boxes:
                         cid  = int(box.cls[0])
                         conf = float(box.conf[0])
                         name = fire_model.names[cid]
                         if name == "fire":
-                            _fire_raw      = True
+                            x1, y1, x2, y2 = box.xyxy[0].tolist()
+                            area_ratio = ((x2 - x1) * (y2 - y1)) / _frame_area
+                            _max_fire_area = max(_max_fire_area, area_ratio)
                             _fire_conf_max = max(_fire_conf_max, conf)
                         elif name == "smoke":
                             _smoke_raw      = True
                             _smoke_conf_max = max(_smoke_conf_max, conf)
+
+                # Alan geçmişini güncelle (fire yoksa 0.0)
+                _fire_area_history.append(_max_fire_area)
+
+                # Büyüklük filtresi
+                _is_large = _max_fire_area >= _fire_min_area
+
+                # Büyüme hızı filtresi — yeterli geçmiş varsa hesapla
+                _is_growing = False
+                if _max_fire_area > 0 and len(_fire_area_history) >= _fire_growth_window:
+                    half      = _fire_growth_window // 2
+                    hist      = list(_fire_area_history)
+                    older_avg = sum(hist[-_fire_growth_window:-half]) / half
+                    newer_avg = sum(hist[-half:]) / half
+                    _is_growing = older_avg > 0 and (newer_avg / older_avg) >= _fire_growth_factor
+
+                if _fire_conf_max > 0 and (_is_large or _is_growing):
+                    _fire_raw = True
             if _fire_raw or _smoke_raw:
                 label = "FIRE" if _fire_raw else "SMOKE"
                 cv2.putText(draw_frame, f"{label} DETECTED!", (10, 90),
@@ -1025,6 +1108,7 @@ def run(args):
         cap.release()
         if display:
             cv2.destroyAllWindows()
+        _notify_camera_status("online", args.camera_id, args.zone)
         print(f"\nToplam frame: {frame_idx} | Kaydedilen event: {event_count}")
         print(f"Sonuclar: results/")
         # Video sonu: aktif event varsa resolve et

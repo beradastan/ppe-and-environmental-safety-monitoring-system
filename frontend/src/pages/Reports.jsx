@@ -1,9 +1,9 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Legend,
   ResponsiveContainer, CartesianGrid,
 } from 'recharts'
-import { fetchReports, fetchReportSummary, generateReportLLM } from '../api.js'
+import { fetchReports, fetchReportSummary, generateReportLLM, fetchSavedReports, fetchSavedReport } from '../api.js'
 import socket from '../socket.js'
 import './Reports.css'
 
@@ -33,10 +33,46 @@ const TREND_META = {
 
 function today() { return new Date().toISOString().slice(0, 10) }
 
+function currentWeekStr() {
+  const d = new Date()
+  const day = (d.getDay() + 6) % 7
+  const thu = new Date(d); thu.setDate(d.getDate() - day + 3)
+  const yearStart = new Date(thu.getFullYear(), 0, 1)
+  const wn = Math.ceil(((thu - yearStart) / 86400000 + 1) / 7)
+  return `${thu.getFullYear()}-W${String(wn).padStart(2, '0')}`
+}
+
+function weekStrToMonday(ws) {
+  const [yr, wp] = ws.split('-W')
+  const year = parseInt(yr), week = parseInt(wp)
+  const jan4 = new Date(year, 0, 4)
+  const jan4Day = (jan4.getDay() + 6) % 7
+  const mon = new Date(jan4)
+  mon.setDate(4 - jan4Day + (week - 1) * 7)
+  return mon.toISOString().slice(0, 10)
+}
+
+function formatSavedDate(period, report_date) {
+  if (period === 'weekly') {
+    const s = new Date(report_date + 'T12:00:00')
+    const e = new Date(s); e.setDate(s.getDate() + 6)
+    const opts = { day: 'numeric', month: 'short' }
+    return `${s.toLocaleDateString('tr-TR', opts)} – ${e.toLocaleDateString('tr-TR', opts)} ${s.getFullYear()}`
+  }
+  if (period === 'monthly') {
+    return new Date(report_date + 'T12:00:00')
+      .toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' })
+  }
+  return new Date(report_date + 'T12:00:00')
+    .toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })
+}
+
 export default function Reports() {
-  const [period, setPeriod]       = useState('weekly')
-  const [date, setDate]           = useState(today())
-  const [chartData, setChartData] = useState([])
+  const [period, setPeriod]         = useState('weekly')
+  const [dailyDate, setDailyDate]   = useState(today())
+  const [weekStr,   setWeekStr]     = useState(currentWeekStr())
+  const [monthStr,  setMonthStr]    = useState(today().slice(0, 7))
+  const [chartData, setChartData]   = useState([])
   const [summary, setSummary]     = useState(null)
   const [llmText, setLlmText]     = useState('')
   const [chartLoading, setChartLoading]     = useState(true)
@@ -45,7 +81,25 @@ export default function Reports() {
   const [llmError, setLlmError]             = useState('')
   const pendingRef = useRef(null)   // { period, date } of in-flight request
 
-  const dateParam = period === 'daily' ? date : undefined
+  const [savedReports, setSavedReports]     = useState([])
+  const [savedLoading, setSavedLoading]     = useState(true)
+  const [selectedSaved, setSelectedSaved]   = useState(null)   // { id, text, loading }
+
+
+  const dateParam =
+    period === 'daily'   ? dailyDate :
+    period === 'weekly'  ? weekStrToMonday(weekStr) :
+    monthStr + '-01'
+
+  const loadSaved = useCallback((p = period) => {
+    setSavedLoading(true)
+    fetchSavedReports(p)
+      .then(d => setSavedReports(d.reports || []))
+      .catch(console.error)
+      .finally(() => setSavedLoading(false))
+  }, [period])
+
+  useEffect(() => { loadSaved(period); setSelectedSaved(null) }, [period])
 
   useEffect(() => {
     setChartLoading(true)
@@ -53,7 +107,7 @@ export default function Reports() {
       .then(res => setChartData(res.data || []))
       .catch(console.error)
       .finally(() => setChartLoading(false))
-  }, [period, date])
+  }, [period, dailyDate, weekStr, monthStr])
 
   useEffect(() => {
     setSummaryLoading(true)
@@ -64,11 +118,13 @@ export default function Reports() {
       .then(setSummary)
       .catch(() => setSummary(null))
       .finally(() => setSummaryLoading(false))
-  }, [period, date])
+  }, [period, dailyDate, weekStr, monthStr])
 
   // Socket.IO — LLM tamamlandığında
   useEffect(() => {
-    function onReady({ period: p, date: d, llm_text }) {
+    function onReady({ period: p, date: d, llm_text, auto_generated }) {
+      loadSaved(p)
+      if (auto_generated) return  // otomatik rapor: sadece listeyi yenile
       const pending = pendingRef.current
       if (!pending) return
       if (pending.period === p && pending.date === (d || '')) {
@@ -92,7 +148,7 @@ export default function Reports() {
       socket.off('report_llm_ready', onReady)
       socket.off('report_llm_error', onError)
     }
-  }, [])
+  }, [loadSaved])
 
   const totals = chartData.reduce(
     (acc, row) => {
@@ -113,6 +169,32 @@ export default function Reports() {
   const trend       = TREND_META[comparison.trend] || TREND_META.no_data
   const riskColor   = RISK_COLORS[risk.risk_level] || '#7a8aa0'
 
+  function handleCSV() {
+    const PERIOD_LABELS = { daily: 'Günlük', weekly: 'Haftalık', monthly: 'Aylık' }
+    const headers = ['Zaman', 'Baret', 'Yelek', 'Maske', 'Yangın', 'Toplam']
+    const rows = chartData.map(r => [r.label, r.helmet||0, r.vest||0, r.mask||0, r.fire||0, r.total||0])
+    const csv = [headers, ...rows].map(r => r.join(',')).join('\n')
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href     = url
+    a.download = `guvenlik_raporu_${PERIOD_LABELS[period]}_${dateParam || today()}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function handlePDF() {
+    window.print()
+  }
+
+  function handleSelectSaved(r) {
+    if (selectedSaved?.id === r.id) return
+    setSelectedSaved({ id: r.id, loading: true, text: '' })
+    fetchSavedReport(r.id)
+      .then(d => setSelectedSaved({ id: r.id, loading: false, text: d.llm_text || '' }))
+      .catch(() => setSelectedSaved({ id: r.id, loading: false, text: 'Rapor yüklenemedi.' }))
+  }
+
   const handleGenerateLLM = () => {
     setLlmLoading(true)
     setLlmText('')
@@ -128,6 +210,7 @@ export default function Reports() {
 
   return (
     <div className="reports-page">
+
 
       {/* ── Header ── */}
       <div className="rp-header">
@@ -146,11 +229,52 @@ export default function Reports() {
           <input
             type="date"
             className="rp-date-input"
-            value={date}
+            value={dailyDate}
             max={today()}
-            onChange={e => setDate(e.target.value)}
+            onChange={e => setDailyDate(e.target.value)}
           />
         )}
+        {period === 'weekly' && (
+          <input
+            type="week"
+            className="rp-date-input"
+            value={weekStr}
+            max={currentWeekStr()}
+            onChange={e => setWeekStr(e.target.value)}
+          />
+        )}
+        {period === 'monthly' && (
+          <input
+            type="month"
+            className="rp-date-input"
+            value={monthStr}
+            max={today().slice(0, 7)}
+            onChange={e => setMonthStr(e.target.value)}
+          />
+        )}
+        <div className="rp-export-btns no-print">
+          <button
+            className="rp-export-btn"
+            onClick={handleCSV}
+            disabled={chartData.length === 0}
+            title="CSV olarak indir"
+          >
+            CSV
+          </button>
+          <button
+            className="rp-export-btn"
+            onClick={handlePDF}
+            title="PDF olarak kaydet"
+          >
+            PDF
+          </button>
+        </div>
+      </div>
+
+      {/* ── Print başlığı (sadece yazdırmada görünür) ── */}
+      <div className="rp-print-title">
+        <strong>Fabrika Güvenlik Raporu</strong>
+        <span>{PERIODS.find(p => p.value === period)?.label} — {dateParam || today()}</span>
       </div>
 
       {/* ── İhlal özet kartlar ── */}
@@ -300,7 +424,7 @@ export default function Reports() {
         <div className="rp-llm-header">
           <span className="rp-section-title">AI Güvenlik Raporu</span>
           <button
-            className="rp-llm-btn"
+            className="rp-llm-btn no-print"
             onClick={handleGenerateLLM}
             disabled={llmLoading || summaryLoading || !summary}
           >
@@ -322,6 +446,57 @@ export default function Reports() {
         )}
       </div>
 
+      {/* ── Kaydedilmiş Raporlar ── */}
+      <div className="rp-saved-panel no-print">
+        <div className="rp-section-title">
+          Kaydedilmiş {PERIODS.find(p => p.value === period)?.label} Raporlar
+        </div>
+        {savedLoading ? (
+          <div className="rp-loading">Yükleniyor…</div>
+        ) : savedReports.length === 0 ? (
+          <div className="rp-saved-empty">Henüz kaydedilmiş rapor yok.</div>
+        ) : (
+          <div className="rp-saved-layout">
+            <ul className="rp-saved-list">
+              {savedReports.map(r => (
+                <li
+                  key={r.id}
+                  className={`rp-saved-row${selectedSaved?.id === r.id ? ' rp-saved-row--active' : ''}`}
+                  onClick={() => handleSelectSaved(r)}
+                >
+                  <span className="rp-saved-row-label">
+                    {formatSavedDate(r.period, r.report_date)}
+                  </span>
+                  <span className="rp-saved-row-right">
+                    {r.auto_generated && <span className="rp-saved-auto">Otomatik</span>}
+                    <span className="rp-saved-time">
+                      {new Date(r.generated_at).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })}
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <div className="rp-saved-detail">
+              {!selectedSaved && (
+                <div className="rp-saved-empty">Soldan bir rapor seçin.</div>
+              )}
+              {selectedSaved?.loading && <span className="rp-spinner" />}
+              {selectedSaved?.text && (
+                <div
+                  className="rp-llm-text"
+                  dangerouslySetInnerHTML={{
+                    __html: selectedSaved.text
+                      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                      .replace(/\n/g, '<br/>')
+                  }}
+                />
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
     </div>
   )
 }
+

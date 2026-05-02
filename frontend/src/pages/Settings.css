@@ -47,6 +47,13 @@
   margin-bottom: 16px;
 }
 
+.settings-section__hint {
+  font-size: 0.75rem;
+  color: #5a6a7a;
+  margin: -8px 0 14px;
+  line-height: 1.5;
+}
+
 .settings-toggles {
   display: grid;
   grid-template-columns: 1fr 1fr;

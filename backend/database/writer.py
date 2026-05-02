@@ -151,3 +151,27 @@ def write_note(event_id: str, note_text: str) -> datetime:
     except Exception as exc:
         logger.error("write_note hatasi: %s", exc, exc_info=True)
     return now
+
+
+def save_llm_report(
+    period: str,
+    report_date: str,
+    llm_text: str,
+    auto_generated: bool = False,
+) -> None:
+    try:
+        with db_cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO llm_reports (period, report_date, llm_text, auto_generated)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (period, report_date) DO UPDATE
+                    SET llm_text       = EXCLUDED.llm_text,
+                        generated_at   = NOW(),
+                        auto_generated = EXCLUDED.auto_generated
+                """,
+                (period, report_date, llm_text, auto_generated),
+            )
+        logger.debug("LLM raporu kaydedildi: %s %s", period, report_date)
+    except Exception as exc:
+        logger.error("save_llm_report hatasi: %s", exc, exc_info=True)

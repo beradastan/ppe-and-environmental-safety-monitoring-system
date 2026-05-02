@@ -216,6 +216,8 @@ def get_event_timeline(results_dir: Path, event_id: str) -> list[dict]:
             "signature":      data.get("signature", {}),
             "llm_report":     data.get("llm_report"),
             "image_filename": image_filename,
+            "camera_id":      data.get("camera_id"),
+            "zone":           data.get("zone"),
         })
 
     return timeline

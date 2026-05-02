@@ -55,6 +55,17 @@ ALTER TABLE event_timeline  ADD COLUMN IF NOT EXISTS persons JSONB;
 ALTER TABLE events          ADD COLUMN IF NOT EXISTS camera_id VARCHAR(20);
 ALTER TABLE events          ADD COLUMN IF NOT EXISTS zone      VARCHAR(50);
 
+-- Otomatik ve manuel oluşturulan LLM raporları
+CREATE TABLE IF NOT EXISTS llm_reports (
+    id             SERIAL       PRIMARY KEY,
+    period         VARCHAR(10)  NOT NULL,   -- daily | weekly | monthly
+    report_date    VARCHAR(10)  NOT NULL,   -- YYYY-MM-DD (dönem başlangıcı)
+    llm_text       TEXT         NOT NULL,
+    generated_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    auto_generated BOOLEAN      NOT NULL DEFAULT FALSE,
+    UNIQUE (period, report_date)
+);
+
 -- İndeksler
 CREATE INDEX IF NOT EXISTS idx_events_status      ON events(event_status);
 CREATE INDEX IF NOT EXISTS idx_events_updated_at  ON events(updated_at DESC);

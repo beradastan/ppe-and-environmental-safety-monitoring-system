@@ -9,11 +9,18 @@ import CameraSetup from './pages/CameraSetup.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 import socket from './socket.js'
 
+const CAM_STATUS_MSG = {
+  offline: 'Kamera bağlantısı kesildi!',
+  frozen:  'Kamera görüntüsü dondu!',
+  dark:    'Kamera görüntüsü karardı — lens kapalı veya ışık yok.',
+}
+
 export default function App() {
   const [page, setPage]               = useState('dashboard')
   const [toasts, setToasts]           = useState([])
   const [activeAlarms, setActiveAlarms] = useState(0)
   const [pendingSelect, setPendingSelect] = useState(null)
+  const [camStatus, setCamStatus]     = useState('online')
 
   useEffect(() => {
     function onAlert(data) {
@@ -31,6 +38,12 @@ export default function App() {
       socket.off('new_alert', onAlert)
       socket.off('event_closed', onResolved)
     }
+  }, [])
+
+  useEffect(() => {
+    function onCamStatus({ status }) { setCamStatus(status) }
+    socket.on('camera_status', onCamStatus)
+    return () => socket.off('camera_status', onCamStatus)
   }, [])
 
   function addToast(data) {
@@ -52,6 +65,13 @@ export default function App() {
   return (
     <div className="app-shell">
       <Navbar page={page} onNavigate={navigateTo} activeAlarms={activeAlarms} />
+      {camStatus !== 'online' && (
+        <div className={`cam-status-bar cam-status-bar--${camStatus}`}>
+          <span className="cam-status-bar__dot" />
+          {CAM_STATUS_MSG[camStatus] || camStatus}
+          <button className="cam-status-bar__close" onClick={() => setCamStatus('online')}>✕</button>
+        </div>
+      )}
       <div className="app-content">
         <ErrorBoundary>
           {page === 'dashboard' && (

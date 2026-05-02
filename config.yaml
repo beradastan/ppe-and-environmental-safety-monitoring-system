@@ -9,10 +9,10 @@ backend:
 database:
   enabled: true
   host: localhost
-  port: 5432
   name: ppe_db
+  password: '1234'
+  port: 5432
   user: postgres
-  password: "1234"
 detection:
   fire_confidence: 0.5
   min_hits: 3
@@ -31,14 +31,21 @@ llm:
   timeout: 120
 models:
   device: auto
-  person_model: models/person_agent_scene_vinayakstyle_best.pt
-  helmet_model: models/bera/crophelmet_agent_final_best.pt
-  vest_model: models/bera/vest_agent_final_best.pt
-  mask_model: models/bera/cropmask_agent_final_best.pt
   fire_model: models/bera/fire_smoke_other_agent_final_best.pt
+  helmet_model: models/bera/crophelmet_agent_final_best.pt
   mask_imgsz: 640
+  mask_model: models/bera/cropmask_agent_final_best.pt
+  person_model: models/person_agent_scene_vinayakstyle_best.pt
+  vest_model: models/bera/cropvest_agent_final_best.pt
 ppe_pipeline:
+  cam_dark_frames: 60
+  cam_dark_thresh: 0.03
+  cam_freeze_diff: 0.002
+  cam_freeze_frames: 60
   fire_conf: 0.5
+  fire_growth_factor: 1.5
+  fire_growth_window: 10
+  fire_min_area_ratio: 0.1
   helmet_conf: 0.2
   mask_conf: 0.25
   new_confirm_sec: 3

@@ -58,16 +58,6 @@ export default function AlertHistory({ initialSelectedId, onEventSelect, socket 
     return () => socket.off('new_alert', onAlert)
   }, [socket, filters])
 
-  // LLM raporu hazır olduğunda seçili event'in timeline'ını yenile
-  useEffect(() => {
-    if (!socket) return
-    function onLlmUpdated({ event_id }) {
-      if (event_id === selectedId) loadTimeline(event_id)
-    }
-    socket.on('llm_updated', onLlmUpdated)
-    return () => socket.off('llm_updated', onLlmUpdated)
-  }, [socket, selectedId, loadTimeline])
-
   // Event kapandığında listeyi yenile
   useEffect(() => {
     if (!socket) return

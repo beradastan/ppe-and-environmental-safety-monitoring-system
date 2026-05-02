@@ -34,6 +34,17 @@
 .rp-tab:hover { background: #1e1e32; color: #c0cde0; }
 .rp-tab--active { background: #1a2a4a; color: #4da6ff; font-weight: 700; }
 
+.rp-date-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.rp-date-hint {
+  font-size: 0.68rem;
+  color: #5a6a7a;
+  padding-left: 2px;
+}
+
 .rp-date-input {
   background: #1a1a2e;
   border: 1px solid #2a2a4e;
@@ -44,6 +55,35 @@
   font-family: inherit;
 }
 .rp-date-input:focus { outline: none; border-color: #4d8ef0; }
+
+.rp-export-btns {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.rp-export-btn {
+  background: #1a1a30;
+  border: 1px solid #3a3a5e;
+  border-radius: 6px;
+  color: #8aaac8;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 6px 14px;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.rp-export-btn:hover:not(:disabled) {
+  background: #222240;
+  border-color: #5a7aaa;
+  color: #c0daf0;
+}
+.rp-export-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.rp-print-title {
+  display: none;
+}
 
 /* ── İhlal özet kartlar ── */
 .rp-summary {
@@ -226,6 +266,81 @@
 }
 .rp-loc-row-count { font-size: 0.82rem; color: #c0cde0; font-weight: 700; text-align: right; }
 
+/* ── Kaydedilmiş Raporlar ── */
+.rp-saved-panel {
+  background: #141428;
+  border: 1px solid #2a2a3e;
+  border-radius: 10px;
+  padding: 20px;
+}
+.rp-saved-empty {
+  color: #5a6a7a;
+  font-size: 0.85rem;
+  padding: 8px 0;
+}
+.rp-saved-layout {
+  display: flex;
+  gap: 0;
+  margin-top: 12px;
+  border: 1px solid #2a2a3e;
+  border-radius: 8px;
+  overflow: hidden;
+  min-height: 220px;
+}
+.rp-saved-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 240px;
+  flex-shrink: 0;
+  border-right: 1px solid #2a2a3e;
+  overflow-y: auto;
+  max-height: 380px;
+}
+.rp-saved-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid #1e1e32;
+  transition: background 0.12s;
+}
+.rp-saved-row:last-child { border-bottom: none; }
+.rp-saved-row:hover { background: #1a1a30; }
+.rp-saved-row--active { background: #1a2a4a; }
+.rp-saved-row-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #c0cde0;
+  line-height: 1.3;
+}
+.rp-saved-row--active .rp-saved-row-label { color: #6bcbff; }
+.rp-saved-row-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rp-saved-auto {
+  font-size: 0.64rem;
+  background: #1a2a40;
+  color: #6bcbff;
+  border: 1px solid #2a4060;
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+.rp-saved-time {
+  font-size: 0.71rem;
+  color: #5a6a7a;
+}
+.rp-saved-detail {
+  flex: 1;
+  padding: 16px 20px;
+  overflow-y: auto;
+  max-height: 380px;
+  background: #0a0a1a;
+}
+
 /* ── LLM Raporu ── */
 .rp-llm-panel {
   background: #141428;
@@ -280,4 +395,75 @@
   font-size: 0.82rem;
   color: #3a3a6e;
   padding: 10px 0;
+}
+
+.rp-llm-error {
+  font-size: 0.82rem;
+  color: #ff6060;
+  background: #2a1010;
+  border: 1px solid #5a2020;
+  border-radius: 6px;
+  padding: 9px 14px;
+  margin-top: 10px;
+}
+
+/* ── Print / PDF ── */
+@media print {
+  /* Sayfa ayarları */
+  @page { margin: 18mm 15mm; }
+
+  /* Gizlenecekler */
+  .no-print,
+  .navbar,
+  .app-shell > .navbar {
+    display: none !important;
+  }
+
+  /* Sayfa arka planını beyaz yap */
+  body, .app-shell, .app-content, .reports-page {
+    background: #fff !important;
+    color: #111 !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Print başlığını göster */
+  .rp-print-title {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 1rem;
+    color: #111;
+    border-bottom: 2px solid #333;
+    padding-bottom: 8px;
+    margin-bottom: 12px;
+  }
+
+  /* Kartlar */
+  .rp-chart-panel,
+  .rp-llm-panel,
+  .rp-info-card,
+  .rp-sum-card {
+    background: #f8f8f8 !important;
+    border-color: #ccc !important;
+    color: #111 !important;
+    break-inside: avoid;
+  }
+
+  /* Metinler */
+  .rp-sum-label, .rp-info-label, .rp-section-title,
+  .rp-trend-sub, .rp-loc-row-cam, .rp-status-key,
+  .rp-llm-text, .rp-llm-empty {
+    color: #333 !important;
+  }
+
+  .rp-sum-val { color: #111 !important; }
+
+  /* Bar dolgu renkleri korunsun */
+  .rp-risk-bar-fill,
+  .rp-loc-row-bar-fill { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+
+  /* LLM text */
+  .rp-llm-text { color: #111 !important; }
+  .rp-llm-text strong { color: #000 !important; }
 }

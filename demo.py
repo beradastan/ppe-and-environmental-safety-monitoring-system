@@ -39,15 +39,14 @@ PIPELINE_HELP = f"""
 {BOLD}Pipeline başlatmak için yeni bir terminal açın:{RESET}
 
   Test videosu:
-    python run_live_video.py --video test/noppe_test.mp4
-    python run_live_video.py --video test/nohat_test.mp4
-    python run_live_video.py --video test/novest_test.mp4
+    python run_live_video.py --video test/intel_safety_full.mp4 --display
+    python run_live_video.py --video test/github_hardhat.mp4 --display
+    python run_live_video.py --video test/pexels_construction1.mp4 --display
+    python run_live_video.py --video test/veo3_construction.mp4 --display
 
-  Görüntü penceresiyle:
-    python run_live_video.py --video test/noppe_test.mp4 --display
-
-  Kamera ile:
+  Kamera ile (kamera kimliği ve bölge opsiyonel):
     python run_live_video.py --camera 0 --display
+    python run_live_video.py --camera 0 --camera-id cam_01 --zone "Uretim Hatti A" --display
 
 {BOLD}Durdurmak için bu pencerede Ctrl+C yapın.{RESET}
 """

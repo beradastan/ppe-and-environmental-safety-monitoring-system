@@ -7,7 +7,7 @@ async function _get(path) {
 }
 
 async function _put(path, body) {
-  const res = await fetch(path, {
+  const res = await fetch(BASE + path, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -91,4 +91,15 @@ export function stopPipeline() {
 
 export function browsePipeline() {
   return _get('/api/pipeline/browse')
+}
+
+export function fetchSavedReports(period) {
+  const params = new URLSearchParams()
+  if (period) params.set('period', period)
+  const qs = params.toString()
+  return _get('/api/reports/saved' + (qs ? '?' + qs : ''))
+}
+
+export function fetchSavedReport(id) {
+  return _get(`/api/reports/saved/${id}`)
 }
