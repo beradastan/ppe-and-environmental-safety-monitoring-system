@@ -437,6 +437,32 @@ def api_close_event(event_id: str):
     return jsonify({"ok": True})
 
 
+@app.route("/api/events/<event_id>/resolve", methods=["PATCH"])
+def api_resolve_event(event_id: str):
+    if not _EVENT_ID_RE.match(event_id):
+        abort(400, "Geçersiz event_id.")
+    if _USE_DB:
+        from backend.database.writer import resolve_event
+        resolve_event(event_id)
+    socketio.emit("event_closed", {"event_id": event_id})
+    return jsonify({"ok": True})
+
+
+@app.route("/api/events/<event_id>/llm", methods=["PATCH"])
+def api_patch_llm(event_id: str):
+    if not _EVENT_ID_RE.match(event_id):
+        abort(400, "Geçersiz event_id.")
+    body   = request.get_json(silent=True) or {}
+    report = str(body.get("llm_report", "")).strip()
+    if not report:
+        abort(400, "llm_report boş olamaz.")
+    if _USE_DB:
+        from backend.database.writer import update_llm_report
+        update_llm_report(event_id, report)
+    socketio.emit("llm_updated", {"event_id": event_id, "llm_report": report})
+    return jsonify({"ok": True})
+
+
 _pipeline_proc:      "_subprocess.Popen | None" = None
 _pipeline_source:    str = ""
 _pipeline_camera_id: str = ""
