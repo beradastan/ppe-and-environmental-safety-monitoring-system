@@ -89,10 +89,15 @@ def _notify_camera_status(status: str, camera_id: str | None = None, zone: str |
         pass
 
 
-def _close_event(event_id: str) -> None:
+def _close_event(event_id: str, repeat_count: int | None = None) -> None:
     """Backend'e PATCH /api/events/<id>/close çağrısı yapar (thread-safe)."""
     try:
-        requests.patch(f"{_get_backend_url()}/api/events/{event_id}/close", timeout=5)
+        body = {"repeat_count": repeat_count} if repeat_count is not None else {}
+        requests.patch(
+            f"{_get_backend_url()}/api/events/{event_id}/close",
+            json=body,
+            timeout=5,
+        )
         print(f"  [CLOSE] {event_id} kapatildi.")
     except Exception as e:
         print(f"  [CLOSE] Hata: {e}")
@@ -1083,7 +1088,7 @@ def run(args):
             if event_info["event_status"] == "closed" and event_info.get("event_id"):
                 threading.Thread(
                     target=_close_event,
-                    args=(event_info["event_id"],),
+                    args=(event_info["event_id"], event_info.get("repeat_count")),
                     daemon=True,
                 ).start()
 

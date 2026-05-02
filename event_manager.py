@@ -6,7 +6,7 @@ event_manager.py
 
 Kayıt mantığı:
   - Sadece "new" (ihlal kesinleşti) kaydedilir ve frontend'e gönderilir.
-  - "resolved" tamamen dahili — dosyaya/socket'e yansımaz.
+  - "closed" tamamen dahili — dosyaya/socket'e yansımaz.
 
 Kişi kameradan çıkınca:
   - Son history_frames frame'deki tespitlerin çoğunluğuna bakılır.
@@ -16,7 +16,7 @@ Kişi kameradan çıkınca:
 process_frame() çıktısı:
     {
         "event_id"    : str | None,
-        "event_status": "idle" | "new" | "active" | "resolved",
+        "event_status": "idle" | "new" | "active" | "closed",
         "repeat_count": int,
         "duration_sec": float,
         "should_save" : bool,   # sadece "new"'da True
@@ -223,8 +223,7 @@ class PersonEventManager:
             elapsed = now - self._clear_since
             if elapsed >= self.resolved_confirm_sec:
                 return self._resolve(ev, sig)
-            ev.last_seen    = now
-            ev.repeat_count += 1
+            ev.last_seen = now
             return self._out(
                 ev.event_id, "active", ev.repeat_count, ev.duration_sec, False,
                 f"confirming_resolved {elapsed:.1f}s/{self.resolved_confirm_sec:.1f}s",

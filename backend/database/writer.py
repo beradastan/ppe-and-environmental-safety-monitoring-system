@@ -118,15 +118,21 @@ def write_event(data: dict, image_filename: str | None = None) -> None:
         logger.error("write_event hatasi: %s", exc, exc_info=True)
 
 
-def close_event(event_id: str) -> None:
+def close_event(event_id: str, repeat_count: int | None = None) -> None:
     """events tablosunda event_status='closed' olarak günceller (video sonu / pipeline kapanışı)."""
     now = datetime.now()
     try:
         with db_cursor() as cur:
-            cur.execute(
-                "UPDATE events SET event_status = %s, updated_at = %s WHERE event_id = %s",
-                ("closed", now, event_id),
-            )
+            if repeat_count is not None:
+                cur.execute(
+                    "UPDATE events SET event_status = %s, updated_at = %s, repeat_count = %s WHERE event_id = %s",
+                    ("closed", now, repeat_count, event_id),
+                )
+            else:
+                cur.execute(
+                    "UPDATE events SET event_status = %s, updated_at = %s WHERE event_id = %s",
+                    ("closed", now, event_id),
+                )
         logger.debug("Event kapatildi: %s", event_id)
     except Exception as exc:
         logger.error("close_event hatasi: %s", exc, exc_info=True)
@@ -151,6 +157,34 @@ def write_note(event_id: str, note_text: str) -> datetime:
     except Exception as exc:
         logger.error("write_note hatasi: %s", exc, exc_info=True)
     return now
+
+
+def resolve_event(event_id: str) -> None:
+    """events tablosunda event_status='closed' olarak günceller (pipeline callback)."""
+    now = datetime.now()
+    try:
+        with db_cursor() as cur:
+            cur.execute(
+                "UPDATE events SET event_status = %s, updated_at = %s WHERE event_id = %s",
+                ("closed", now, event_id),
+            )
+        logger.debug("Event resolve edildi: %s", event_id)
+    except Exception as exc:
+        logger.error("resolve_event hatasi: %s", exc, exc_info=True)
+
+
+def update_llm_report(event_id: str, llm_report: str) -> None:
+    """events tablosunda llm_report alanını günceller."""
+    now = datetime.now()
+    try:
+        with db_cursor() as cur:
+            cur.execute(
+                "UPDATE events SET llm_report = %s, updated_at = %s WHERE event_id = %s",
+                (llm_report, now, event_id),
+            )
+        logger.debug("LLM raporu guncellendi: %s", event_id)
+    except Exception as exc:
+        logger.error("update_llm_report hatasi: %s", exc, exc_info=True)
 
 
 def save_llm_report(

@@ -437,7 +437,9 @@ def api_close_event(event_id: str):
         abort(400, "Geçersiz event_id.")
     if _USE_DB:
         from backend.database.writer import close_event
-        close_event(event_id)
+        body = request.get_json(silent=True) or {}
+        rc = body.get("repeat_count")
+        close_event(event_id, repeat_count=int(rc) if rc is not None else None)
     socketio.emit("event_closed", {"event_id": event_id})
     return jsonify({"ok": True})
 
