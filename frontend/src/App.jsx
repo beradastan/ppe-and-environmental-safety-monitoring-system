@@ -21,6 +21,11 @@ export default function App() {
   const [activeAlarms, setActiveAlarms] = useState(0)
   const [pendingSelect, setPendingSelect] = useState(null)
   const [camStatus, setCamStatus]     = useState('online')
+  const [theme, setTheme]             = useState(() => {
+    const saved = localStorage.getItem('theme') || 'dark'
+    document.documentElement.setAttribute('data-theme', saved)
+    return saved
+  })
 
   useEffect(() => {
     function onAlert(data) {
@@ -62,9 +67,24 @@ export default function App() {
     if (p === 'alerts' && activeAlarms > 0) setActiveAlarms(0)
   }
 
+  function toggleTheme() {
+    setTheme(t => {
+      const next = t === 'dark' ? 'light' : 'dark'
+      document.documentElement.setAttribute('data-theme', next)
+      localStorage.setItem('theme', next)
+      return next
+    })
+  }
+
   return (
     <div className="app-shell">
-      <Navbar page={page} onNavigate={navigateTo} activeAlarms={activeAlarms} />
+      <Navbar
+        page={page}
+        onNavigate={navigateTo}
+        activeAlarms={activeAlarms}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+      />
       {camStatus !== 'online' && (
         <div className={`cam-status-bar cam-status-bar--${camStatus}`}>
           <span className="cam-status-bar__dot" />
@@ -78,6 +98,7 @@ export default function App() {
             <Dashboard
               onNavigate={navigateTo}
               onSelectEvent={handleSelectFromDashboard}
+              theme={theme}
             />
           )}
           {page === 'alerts' && (
@@ -86,7 +107,7 @@ export default function App() {
               socket={socket}
             />
           )}
-          {page === 'reports'  && <Reports />}
+          {page === 'reports'  && <Reports theme={theme} />}
           {page === 'settings' && <Settings />}
           {page === 'camera'   && <CameraSetup />}
         </ErrorBoundary>

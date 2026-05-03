@@ -1,3 +1,83 @@
+/* ── Theme variables ── */
+:root {
+  --bg:              #0f1117;
+  --bg-nav:          #0c0e15;
+  --surface:         #161b27;
+  --surface-2:       #1c2133;
+  --surface-deep:    #090d1a;
+  --border:          #252d3d;
+  --border-2:        #2c3650;
+  --text:            #d0d8e8;
+  --text-2:          #6a7d96;
+  --text-3:          #46566a;
+  --text-dim:        #90a4bc;
+  --accent:          #4da6ff;
+  --accent-light:    #6bcbff;
+  --accent-bg:       #122040;
+  --accent-bg-2:     #1c3560;
+  --scroll-track:    #141828;
+  --scroll-thumb:    #2e3d55;
+  --input-bg:        #0a0e1c;
+  --input-border:    #2c3050;
+  --danger-bg:       #1a1020;
+  --danger-border:   #7a2020;
+  --warn-bg:         #1a1500;
+  --warn-border:     #7a5500;
+  --success-bg:      #0a2a18;
+  --success-border:  #1a5a36;
+  --error-bg:        #2a1010;
+  --error-border:    #5a2020;
+  --error-text:      #ff7070;
+  --cam-offline-bg:     #3a0e0e;
+  --cam-offline-border: #6a1e1e;
+  --cam-offline-text:   #ff7070;
+  --cam-frozen-bg:      #1a2a4a;
+  --cam-frozen-border:  #2a4a8a;
+  --cam-frozen-text:    #70b0ff;
+  --cam-dark-bg:        #2a2a0e;
+  --cam-dark-border:    #5a4a1e;
+  --cam-dark-text:      #ffd070;
+}
+
+[data-theme="light"] {
+  --bg:              #f0f4f8;
+  --surface:         #ffffff;
+  --surface-2:       #f1f5f9;
+  --surface-deep:    #f8fafc;
+  --border:          #e2e8f0;
+  --border-2:        #cbd5e1;
+  --text:            #1e293b;
+  --text-2:          #64748b;
+  --text-3:          #94a3b8;
+  --text-dim:        #475569;
+  --accent:          #2563eb;
+  --accent-light:    #3b82f6;
+  --accent-bg:       #dbeafe;
+  --accent-bg-2:     #bfdbfe;
+  --scroll-track:    #f1f5f9;
+  --scroll-thumb:    #94a3b8;
+  --input-bg:        #f8fafc;
+  --input-border:    #cbd5e1;
+  --danger-bg:       #fff1f0;
+  --danger-border:   #fca5a5;
+  --warn-bg:         #fffbeb;
+  --warn-border:     #fcd34d;
+  --success-bg:      #f0fdf4;
+  --success-border:  #86efac;
+  --error-bg:        #fef2f2;
+  --error-border:    #fca5a5;
+  --error-text:      #dc2626;
+  --cam-offline-bg:     #fef2f2;
+  --cam-offline-border: #fca5a5;
+  --cam-offline-text:   #dc2626;
+  --cam-frozen-bg:      #eff6ff;
+  --cam-frozen-border:  #93c5fd;
+  --cam-frozen-text:    #2563eb;
+  --cam-dark-bg:        #fefce8;
+  --cam-dark-border:    #fde68a;
+  --cam-dark-text:      #d97706;
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -6,8 +86,8 @@
 
 body {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: #0f0f1e;
-  color: #c0cde0;
+  background: var(--bg);
+  color: var(--text);
   height: 100vh;
   overflow: hidden;
 }
@@ -29,8 +109,8 @@ body {
 }
 
 ::-webkit-scrollbar { width: 5px; height: 5px; }
-::-webkit-scrollbar-track { background: #1a1a2e; }
-::-webkit-scrollbar-thumb { background: #3a3a6e; border-radius: 3px; }
+::-webkit-scrollbar-track { background: var(--scroll-track); }
+::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 3px; }
 
 /* ── Kamera durum banner ── */
 .cam-status-bar {
@@ -48,9 +128,21 @@ body {
   to   { transform: translateY(0);     opacity: 1; }
 }
 
-.cam-status-bar--offline { background: #3a0e0e; color: #ff7070; border-bottom: 1px solid #6a1e1e; }
-.cam-status-bar--frozen  { background: #1a2a4a; color: #70b0ff; border-bottom: 1px solid #2a4a8a; }
-.cam-status-bar--dark    { background: #2a2a0e; color: #ffd070; border-bottom: 1px solid #5a4a1e; }
+.cam-status-bar--offline {
+  background: var(--cam-offline-bg);
+  color: var(--cam-offline-text);
+  border-bottom: 1px solid var(--cam-offline-border);
+}
+.cam-status-bar--frozen {
+  background: var(--cam-frozen-bg);
+  color: var(--cam-frozen-text);
+  border-bottom: 1px solid var(--cam-frozen-border);
+}
+.cam-status-bar--dark {
+  background: var(--cam-dark-bg);
+  color: var(--cam-dark-text);
+  border-bottom: 1px solid var(--cam-dark-border);
+}
 
 .cam-status-bar__dot {
   width: 8px;

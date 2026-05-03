@@ -83,9 +83,13 @@ def _notify_camera_status(status: str, camera_id: str | None = None, zone: str |
         pass
 
 
-def _close_event(event_id: str, repeat_count: int | None = None) -> None:
+def _close_event(event_id: str, repeat_count: int | None = None, duration_sec: float | None = None) -> None:
     try:
-        body = {"repeat_count": repeat_count} if repeat_count is not None else {}
+        body: dict = {}
+        if repeat_count is not None:
+            body["repeat_count"] = repeat_count
+        if duration_sec is not None:
+            body["duration_sec"] = duration_sec
         requests.patch(
             f"{_get_backend_url()}/api/events/{event_id}/close",
             json=body,
@@ -1315,7 +1319,7 @@ def run(args):
             if event_info["event_status"] == "closed" and event_info.get("event_id"):
                 threading.Thread(
                     target=_close_event,
-                    args=(event_info["event_id"], event_info.get("repeat_count")),
+                    args=(event_info["event_id"], event_info.get("repeat_count"), event_info.get("duration_sec")),
                     daemon=True,
                 ).start()
 
@@ -1344,7 +1348,8 @@ def run(args):
         print(f"\nToplam frame: {frame_idx} | Kaydedilen event: {event_count}")
         print("Sonuclar: results/")
         if event_manager._active is not None:
-            _close_event(event_manager._active.event_id)
+            ev = event_manager._active
+            _close_event(ev.event_id, ev.repeat_count, ev.duration_sec)
         pending = [t for t in _llm_threads if t.is_alive()]
         if pending:
             print(f"  LLM thread'leri bekleniyor ({len(pending)} adet)...")

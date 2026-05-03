@@ -6,9 +6,27 @@ import EventCard from '../components/EventCard.jsx'
 import { fetchStats } from '../api.js'
 import './Dashboard.css'
 
-const DIST_COLORS = { Baret: '#ff6b6b', Yelek: '#ffd93d', Maske: '#6bcbff', Yangın: '#ff8c42' }
+const DIST_COLORS = { Baret: '#ffd740', Yelek: '#ff8c40', Maske: '#66bbff', Yangın: '#ff5f5f' }
 
-export default function Dashboard({ onNavigate, onSelectEvent }) {
+const CHART_STYLES = {
+  dark: {
+    tick:           '#6a7d96',
+    tooltipBg:      '#1c2133',
+    tooltipBorder:  '#2c3650',
+    tooltipLabel:   '#d0d8e8',
+    tooltipItem:    '#7ab8ff',
+  },
+  light: {
+    tick:           '#64748b',
+    tooltipBg:      '#ffffff',
+    tooltipBorder:  '#e2e8f0',
+    tooltipLabel:   '#1e293b',
+    tooltipItem:    '#2563eb',
+  },
+}
+
+export default function Dashboard({ onNavigate, onSelectEvent, theme = 'dark' }) {
+  const cs = CHART_STYLES[theme] || CHART_STYLES.dark
   const [stats, setStats]     = useState(null)
   const [loading, setLoading] = useState(true)
 
@@ -61,13 +79,13 @@ export default function Dashboard({ onNavigate, onSelectEvent }) {
           <h3 className="db-section-title">İhlal Dağılımı</h3>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-              <XAxis dataKey="name" tick={{ fill: '#7a8aa0', fontSize: 12 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: '#7a8aa0', fontSize: 12 }} axisLine={false} tickLine={false} allowDecimals={false} />
+              <XAxis dataKey="name" tick={{ fill: cs.tick, fontSize: 12 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: cs.tick, fontSize: 12 }} axisLine={false} tickLine={false} allowDecimals={false} />
               <Tooltip
-                contentStyle={{ background: '#1a1a2e', border: '1px solid #2a2a4e', borderRadius: 6 }}
-                labelStyle={{ color: '#c0cde0' }}
-                itemStyle={{ color: '#7ab8ff' }}
-                cursor={{ fill: 'rgba(255,255,255,0.04)' }}
+                contentStyle={{ background: cs.tooltipBg, border: `1px solid ${cs.tooltipBorder}`, borderRadius: 6 }}
+                labelStyle={{ color: cs.tooltipLabel }}
+                itemStyle={{ color: cs.tooltipItem }}
+                cursor={{ fill: 'rgba(128,128,128,0.06)' }}
               />
               <Bar dataKey="value" radius={[4, 4, 0, 0]}>
                 {chartData.map(entry => (

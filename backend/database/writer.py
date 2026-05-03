@@ -118,21 +118,24 @@ def write_event(data: dict, image_filename: str | None = None) -> None:
         logger.error("write_event hatasi: %s", exc, exc_info=True)
 
 
-def close_event(event_id: str, repeat_count: int | None = None) -> None:
+def close_event(event_id: str, repeat_count: int | None = None, duration_sec: float | None = None) -> None:
     """events tablosunda event_status='closed' olarak günceller (video sonu / pipeline kapanışı)."""
     now = datetime.now()
     try:
         with db_cursor() as cur:
+            fields = ["event_status = %s", "updated_at = %s"]
+            values: list = ["closed", now]
             if repeat_count is not None:
-                cur.execute(
-                    "UPDATE events SET event_status = %s, updated_at = %s, repeat_count = %s WHERE event_id = %s",
-                    ("closed", now, repeat_count, event_id),
-                )
-            else:
-                cur.execute(
-                    "UPDATE events SET event_status = %s, updated_at = %s WHERE event_id = %s",
-                    ("closed", now, event_id),
-                )
+                fields.append("repeat_count = %s")
+                values.append(repeat_count)
+            if duration_sec is not None:
+                fields.append("duration_sec = %s")
+                values.append(duration_sec)
+            values.append(event_id)
+            cur.execute(
+                f"UPDATE events SET {', '.join(fields)} WHERE event_id = %s",
+                values,
+            )
         logger.debug("Event kapatildi: %s", event_id)
     except Exception as exc:
         logger.error("close_event hatasi: %s", exc, exc_info=True)

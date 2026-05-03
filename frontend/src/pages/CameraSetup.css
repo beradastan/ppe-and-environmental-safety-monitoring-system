@@ -15,7 +15,7 @@
 .cs-title {
   font-size: 1.15rem;
   font-weight: 700;
-  color: #d0dff0;
+  color: var(--text);
   margin: 0;
 }
 
@@ -25,11 +25,11 @@
   gap: 6px;
   font-size: 0.75rem;
   font-weight: 600;
-  color: #4a5a70;
+  color: var(--text-3);
   padding: 3px 10px;
   border-radius: 20px;
-  background: #1a1a30;
-  border: 1px solid #2a2a4e;
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
 }
 
 .cs-badge--on {
@@ -86,8 +86,8 @@
 
 /* ── Cards ── */
 .cs-card {
-  background: #141428;
-  border: 1px solid #2a3a5e;
+  background: var(--surface);
+  border: 1px solid var(--border-2);
   border-radius: 10px;
   padding: 18px 20px;
   margin-bottom: 16px;
@@ -96,7 +96,7 @@
 .cs-card__label {
   font-size: 0.7rem;
   font-weight: 700;
-  color: #4a6a90;
+  color: var(--text-2);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   margin-bottom: 14px;
@@ -114,22 +114,22 @@
   border-radius: 6px;
   font-size: 0.82rem;
   font-weight: 600;
-  border: 1px solid #2a3a5e;
-  background: #1a1a30;
-  color: #6a8ab0;
+  border: 1px solid var(--border-2);
+  background: var(--surface-2);
+  color: var(--text-2);
   cursor: pointer;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
 .cs-tab:hover:not(:disabled) {
-  background: #22223a;
-  color: #a0c0e0;
+  background: var(--surface-2);
+  color: var(--text);
 }
 
 .cs-tab--active {
-  background: #0d2a4a !important;
-  border-color: #2a6aaa !important;
-  color: #5abaff !important;
+  background: var(--accent-bg) !important;
+  border-color: var(--accent) !important;
+  color: var(--accent-light) !important;
 }
 
 .cs-tab:disabled {
@@ -151,24 +151,24 @@
   gap: 6px;
   width: 110px;
   padding: 14px 12px;
-  background: #1a1a30;
-  border: 1px solid #2a3a5e;
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
   border-radius: 10px;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
-  color: #7a9ab8;
+  color: var(--text-2);
 }
 
 .cs-cam-card:hover:not(:disabled) {
-  background: #22223e;
-  border-color: #4a7aaa;
-  color: #a0c0e0;
+  background: var(--surface-2);
+  border-color: var(--accent);
+  color: var(--text);
 }
 
 .cs-cam-card--selected {
-  background: #0d2a4a !important;
-  border-color: #4a9aff !important;
-  color: #5abaff !important;
+  background: var(--accent-bg) !important;
+  border-color: var(--accent) !important;
+  color: var(--accent-light) !important;
 }
 
 .cs-cam-card:disabled {
@@ -198,7 +198,7 @@
 
 .cs-cam-index {
   font-size: 0.68rem;
-  color: #4a6a80;
+  color: var(--text-3);
 }
 
 /* ── Video row ── */
@@ -209,10 +209,10 @@
 
 /* ── Form fields ── */
 .cs-input {
-  background: #0e0e22;
-  border: 1px solid #3a3a5e;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
   border-radius: 6px;
-  color: #c0cde0;
+  color: var(--text);
   font-size: 0.83rem;
   padding: 8px 11px;
   outline: none;
@@ -222,7 +222,7 @@
 }
 
 .cs-input:focus {
-  border-color: #4a8aff;
+  border-color: var(--accent);
 }
 
 .cs-input:disabled {
@@ -231,15 +231,15 @@
 }
 
 .cs-input::placeholder {
-  color: #3a4a60;
+  color: var(--text-3);
 }
 
 
 .cs-browse-btn {
-  background: #1e1e36;
-  border: 1px solid #3a3a5e;
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
   border-radius: 6px;
-  color: #a0b0c8;
+  color: var(--text-dim);
   font-size: 0.82rem;
   padding: 8px 14px;
   cursor: pointer;
@@ -249,8 +249,8 @@
 }
 
 .cs-browse-btn:hover:not(:disabled) {
-  background: #2a2a4e;
-  border-color: #5a7aff;
+  background: var(--surface-2);
+  border-color: var(--accent);
 }
 
 .cs-browse-btn:disabled {
@@ -271,16 +271,16 @@
 .cs-field__label {
   display: block;
   font-size: 0.73rem;
-  color: #5a7a9a;
+  color: var(--text-2);
   margin-bottom: 6px;
 }
 
 /* ── Error ── */
 .cs-error {
-  background: #2a1010;
-  border: 1px solid #5a2020;
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
   border-radius: 6px;
-  color: #ff7070;
+  color: var(--error-text);
   font-size: 0.82rem;
   padding: 9px 14px;
   margin-bottom: 14px;
@@ -343,7 +343,7 @@
 
 .cs-info-list li {
   font-size: 0.8rem;
-  color: #6a8aaa;
+  color: var(--text-2);
   line-height: 1.5;
   padding-left: 12px;
   position: relative;
@@ -353,12 +353,12 @@
   content: '›';
   position: absolute;
   left: 0;
-  color: #3a6a9a;
+  color: var(--accent);
 }
 
 .cs-info-list code {
-  background: #1a2a3e;
-  color: #5abaff;
+  background: var(--accent-bg);
+  color: var(--accent-light);
   padding: 1px 5px;
   border-radius: 3px;
   font-size: 0.78rem;
@@ -378,11 +378,11 @@
 }
 
 .cs-status-key {
-  color: #5a7a9a;
+  color: var(--text-2);
 }
 
 .cs-status-val {
-  color: #8aaac8;
+  color: var(--text-dim);
   font-weight: 600;
   text-align: right;
   max-width: 160px;
@@ -394,7 +394,7 @@
 
 .cs-mode-desc {
   font-size: 0.82rem;
-  color: #aaa;
+  color: var(--text-2);
   margin: 8px 0 0;
   line-height: 1.4;
 }

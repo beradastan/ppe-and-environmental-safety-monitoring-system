@@ -11,7 +11,7 @@
   top: 16px;
   bottom: 0;
   width: 2px;
-  background: #2a2a4e;
+  background: var(--border-2);
 }
 
 .tl-step__dot {
@@ -20,8 +20,8 @@
   border-radius: 50%;
   flex-shrink: 0;
   margin-top: 2px;
-  background: #3a3a6e;
-  border: 2px solid #5a5a9e;
+  background: var(--border-2);
+  border: 2px solid var(--border-2);
 }
 .tl-step--new      .tl-step__dot { background: #dc3545; border-color: #ff6070; }
 .tl-step--update   .tl-step__dot { background: #fd7e14; border-color: #ffaa55; }
@@ -36,12 +36,12 @@
   flex-wrap: wrap;
   margin-bottom: 6px;
 }
-.tl-step__time { font-size: 0.78rem; color: #7a8aa0; }
-.tl-step__meta { font-size: 0.75rem; color: #5a6a80; margin-left: auto; }
+.tl-step__time { font-size: 0.78rem; color: var(--text-2); }
+.tl-step__meta { font-size: 0.75rem; color: var(--text-3); margin-left: auto; }
 
 .tl-step__reason {
   font-size: 0.78rem;
-  color: #8899bb;
+  color: var(--text-dim);
   margin-bottom: 4px;
   font-style: italic;
 }
@@ -53,7 +53,7 @@
   max-height: 360px;
   object-fit: contain;
   border-radius: 6px;
-  border: 1px solid #2a2a4e;
+  border: 1px solid var(--border-2);
 }
 
 .tl-step__persons {
@@ -63,12 +63,12 @@
   margin-top: 8px;
 }
 .tl-step__person-tag {
-  background: #1a2030;
-  border: 1px solid #2a3550;
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
   border-radius: 4px;
   padding: 3px 8px;
   font-size: 0.75rem;
-  color: #8899bb;
+  color: var(--text-dim);
   display: flex;
   gap: 4px;
   align-items: center;
@@ -85,9 +85,9 @@
 .tl-step__llm {
   margin-top: 10px;
   padding: 8px 12px;
-  border-left: 3px solid #4d8ef0;
-  background: #1a1f30;
-  color: #b0c4de;
+  border-left: 3px solid var(--accent);
+  background: var(--surface-2);
+  color: var(--text-dim);
   font-size: 0.83rem;
   line-height: 1.5;
   border-radius: 0 4px 4px 0;
@@ -95,7 +95,7 @@
 .tl-step__no-llm {
   margin-top: 8px;
   font-size: 0.75rem;
-  color: #4a5a70;
+  color: var(--text-3);
   font-style: italic;
 }
 
@@ -108,9 +108,9 @@
 
 .tl-step__llm-item {
   padding: 8px 12px;
-  background: #1a1f30;
+  background: var(--surface-2);
   border-radius: 4px;
-  border-left: 3px solid #2a3550;
+  border-left: 3px solid var(--border-2);
 }
 
 .tl-step__llm-tag {
@@ -124,9 +124,9 @@
 }
 
 .tl-step__llm-tag--2 {
-  background: #1a2a4a;
-  color: #4d8ef0;
-  border: 1px solid #2a3f6a;
+  background: var(--accent-bg);
+  color: var(--accent);
+  border: 1px solid var(--border-2);
 }
 
 .tl-step__llm-tag--3 {
@@ -138,7 +138,7 @@
 .tl-step__llm-text {
   margin: 4px 0 0;
   font-size: 0.82rem;
-  color: #b0c4de;
+  color: var(--text-dim);
   line-height: 1.5;
   display: flex;
   gap: 6px;
@@ -147,6 +147,6 @@
 
 .tl-step__llm-sub {
   font-size: 0.72rem;
-  color: #6a8aaa;
+  color: var(--text-2);
   flex-shrink: 0;
 }

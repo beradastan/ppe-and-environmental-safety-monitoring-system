@@ -194,11 +194,25 @@ camera_status     → kamera durumu {status: online|offline|frozen|dark, camera_
 - **"resolved" → "closed"** — tüm codebase'de event_status "closed" kullanılır
 - **`/close` ve `/resolve`** — ikisi de aynı işlevi yapar (status=closed, repeat_count günceller)
 - **`repeat_count`** — sadece aktif ihlal varken artar; "confirming_resolved" aşamasında artmaz; event kapanırken DB'ye final değer yazılır
+- **`duration_sec`** — `_close_event()` artık duration_sec kabul eder ve PATCH body'e ekler; `/close` endpoint DB'ye yazar; hem normal kapanışta hem video-sonu temizliğinde geçirilir
 - **camera_id + zone** — CLI `--camera-id` `--zone`, DB'ye yazılıyor, rapor lokasyon analizinde kullanılıyor
 - **LLM async** — POST hemen döner, sonuç socket ile gelir
 - **DB kapalıyken** — dosya sistemi (results/) fallback çalışır ama summary endpoint'leri 503 döner
 - **device: cuda** — GPU öncelikli, CUDA yoksa otomatik CPU'ya düşer
 - **Vest modeli (crop)** — `compare_vest.py` karşılaştırmasında `cropvest_agent_final_best.pt` seçildi
+
+## Frontend Tema Sistemi
+- **Light/dark toggle** — `App.jsx`'te `theme` state'i, `localStorage` ile persist; `toggleTheme()` senkron olarak `document.documentElement.setAttribute('data-theme', ...)` çağırır (grafik renkleri aynı frame'de güncellenir)
+- **CSS değişkenleri** — `global.css` `:root` dark varsayılan, `[data-theme="light"]` override; tüm 16 CSS dosyası `var(--bg)`, `var(--surface)` vb. kullanıyor
+- **Navbar toggle butonu** — `Navbar.jsx` `theme` + `onToggleTheme` prop alır; dark modda güneş ikonu, light modda ay ikonu gösterir; Navbar kendisi her iki modda da koyu kalır (`--bg-nav` override edilmez)
+- **PPE renkleri (kesinleşmiş):** baret sarı `#ffd740`, yelek turuncu `#ff8c40`, maske mavi `#66bbff`, yangın kırmızı `#ff5f5f` — `SignatureSummary.css`, `Dashboard.jsx` `DIST_COLORS`, `Reports.jsx` `COLORS` hepsi bu değerleri kullanıyor
+- **Grafik tema stilleri** — `Dashboard.jsx` ve `Reports.jsx`'te `CHART_STYLES = { dark: {...}, light: {...} }` objesi; `theme` prop ile seçilir; tick rengi, tooltip arkaplan/kenarlık, grid, legend renkleri tema ile değişir
+
+## Düzeltilen Buglar
+- **`services.py` SyntaxError** — `generate_daily/weekly/monthly_summary` içindeki 3 adet `except` satırında literal `\n` karakteri vardı (gerçek newline değil); Python import sırasında SyntaxError'a yol açıyordu → `/api/reports/summary` 500 döndürüyordu → Reports sayfası boş görünüyordu. Gerçek newline ile değiştirildi.
+- **`api.js _post()` BASE eksikliği** — `_get` ve `_put` `BASE + path` kullanırken `_post` sadece `path` kullanıyordu. `BASE + path` yapıldı.
+- **Reports `undefined%`** — `comparison.change_percent !== null` (strict) `undefined`'ı geçiriyordu; `!= null` (loose) yapıldı.
+- **`duration_sec` DB'ye yazılmıyordu** — `_close_event()` sadece `repeat_count` geçiriyordu; `writer.close_event()` SQL'de `duration_sec` yoktu. Dört dosyada düzeltildi: `run_live_video.py` (`_close_event` fonksiyonu + çağrı noktaları), `backend/app.py` (`/close` endpoint), `backend/database/writer.py` (`close_event` SQL).
 
 ## config.yaml Bölümleri
 `database`, `backend`, `detection`, `ppe_pipeline`, `models` (crop/scene alt bölümleri dahil), `event_manager`, `llm`, `results_keep_events`

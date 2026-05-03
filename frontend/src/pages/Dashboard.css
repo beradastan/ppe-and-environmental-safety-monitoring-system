@@ -9,7 +9,7 @@
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: #7a8aa0;
+  color: var(--text-2);
   font-size: 0.9rem;
 }
 
@@ -21,18 +21,18 @@
 }
 
 .db-card {
-  background: #141428;
-  border: 1px solid #2a2a3e;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 20px 22px;
 }
-.db-card--danger { border-color: #7a2020; background: #1a1020; }
-.db-card--warn   { border-color: #7a5500; background: #1a1500; }
+.db-card--danger { border-color: var(--danger-border); background: var(--danger-bg); }
+.db-card--warn   { border-color: var(--warn-border);   background: var(--warn-bg); }
 
 .db-card__value {
   font-size: 2rem;
   font-weight: 800;
-  color: #e0e8f0;
+  color: var(--text);
   line-height: 1;
   margin-bottom: 6px;
 }
@@ -41,7 +41,7 @@
 
 .db-card__label {
   font-size: 0.78rem;
-  color: #7a8aa0;
+  color: var(--text-2);
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -55,8 +55,8 @@
 
 .db-chart-panel,
 .db-recent-panel {
-  background: #141428;
-  border: 1px solid #2a2a3e;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 20px;
 }
@@ -64,7 +64,7 @@
 .db-section-title {
   font-size: 0.82rem;
   font-weight: 700;
-  color: #7a8aa0;
+  color: var(--text-2);
   text-transform: uppercase;
   letter-spacing: 0.07em;
   margin-bottom: 16px;
@@ -81,7 +81,7 @@
 .db-all-btn {
   background: none;
   border: none;
-  color: #4da6ff;
+  color: var(--accent);
   font-size: 0.8rem;
   cursor: pointer;
   padding: 0;
@@ -91,7 +91,7 @@
 .db-recent-list { overflow-y: auto; max-height: 280px; }
 
 .db-empty {
-  color: #4a5a70;
+  color: var(--text-3);
   font-size: 0.83rem;
   font-style: italic;
   padding: 8px 0;

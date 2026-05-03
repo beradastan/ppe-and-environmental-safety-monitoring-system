@@ -6,9 +6,9 @@
   font-size: 0.78rem;
   font-weight: 600;
 }
-.sig-tag--helmet { background: #3a1f1f; color: #ff8080; border: 1px solid #7a3030; }
-.sig-tag--vest   { background: #3a2a10; color: #ffbb55; border: 1px solid #7a5500; }
+.sig-tag--helmet { background: #332d0a; color: #ffd740; border: 1px solid #7a6400; }
+.sig-tag--vest   { background: #3a1c08; color: #ff8c40; border: 1px solid #8a3800; }
 .sig-tag--mask   { background: #1a2a3a; color: #66bbff; border: 1px solid #2255aa; }
-.sig-tag--fire   { background: #4a1a00; color: #ff6622; border: 1px solid #aa3300; }
+.sig-tag--fire   { background: #3a1010; color: #ff5f5f; border: 1px solid #aa2020; }
 
 .sig-clear { color: #4caf50; font-size: 0.82rem; margin-top: 4px; }

@@ -1,14 +1,14 @@
 .event-card {
   padding: 12px 14px;
-  border-bottom: 1px solid #2a2a3e;
+  border-bottom: 1px solid var(--border);
   cursor: pointer;
   transition: background 0.15s;
   border-left: 3px solid transparent;
 }
-.event-card:hover { background: #1f1f35; }
+.event-card:hover { background: var(--surface-2); }
 .event-card--selected {
-  background: #1e2a40;
-  border-left-color: #4d8ef0;
+  background: var(--accent-bg);
+  border-left-color: var(--accent);
 }
 
 .event-card__header {
@@ -20,12 +20,12 @@
 .event-card__id {
   font-weight: 700;
   font-size: 0.9rem;
-  color: #c0cde0;
+  color: var(--text);
 }
 .event-card__meta {
   display: flex;
   justify-content: space-between;
   font-size: 0.75rem;
-  color: #7a8aa0;
+  color: var(--text-2);
   margin-bottom: 4px;
 }

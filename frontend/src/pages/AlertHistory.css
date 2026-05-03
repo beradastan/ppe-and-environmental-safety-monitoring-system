@@ -8,7 +8,7 @@
 .ah-sidebar {
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #2a2a3e;
+  border-right: 1px solid var(--border);
   height: 100%;
   overflow: hidden;
 }
@@ -18,22 +18,22 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  border-bottom: 1px solid #2a2a3e;
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
 .ah-filter-input {
-  background: #1a1a2e;
-  border: 1px solid #2a2a4e;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
   border-radius: 6px;
-  color: #c0cde0;
+  color: var(--text);
   font-size: 0.82rem;
   padding: 6px 10px;
   width: 100%;
   font-family: inherit;
 }
-.ah-filter-input:focus { outline: none; border-color: #4d8ef0; }
-.ah-filter-input option { background: #1a1a2e; }
+.ah-filter-input:focus { outline: none; border-color: var(--accent); }
+.ah-filter-input option { background: var(--surface-2); }
 
 .ah-clear-btn {
   background: #2a1a1a;

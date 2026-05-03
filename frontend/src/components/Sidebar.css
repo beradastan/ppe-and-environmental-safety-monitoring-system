@@ -1,6 +1,6 @@
 .sidebar {
-  background: #141428;
-  border-right: 1px solid #2a2a3e;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   height: 100vh;
@@ -9,7 +9,7 @@
 
 .sidebar__header {
   padding: 16px 14px;
-  border-bottom: 1px solid #2a2a3e;
+  border-bottom: 1px solid var(--border);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -18,11 +18,11 @@
 .sidebar__header h2 {
   font-size: 1rem;
   font-weight: 700;
-  color: #e0e8f0;
+  color: var(--text);
 }
 .sidebar__count {
   font-size: 0.75rem;
-  color: #7a8aa0;
+  color: var(--text-2);
 }
 
 .sidebar__list {
@@ -30,11 +30,11 @@
   flex: 1;
 }
 .sidebar__list::-webkit-scrollbar { width: 4px; }
-.sidebar__list::-webkit-scrollbar-thumb { background: #3a3a5e; border-radius: 2px; }
+.sidebar__list::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 2px; }
 
 .sidebar__msg {
   padding: 20px 14px;
-  color: #7a8aa0;
+  color: var(--text-2);
   font-size: 0.85rem;
   text-align: center;
 }

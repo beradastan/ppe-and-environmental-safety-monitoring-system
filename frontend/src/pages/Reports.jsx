@@ -13,8 +13,27 @@ const PERIODS = [
   { value: 'monthly', label: 'Aylık'    },
 ]
 
-const COLORS = { helmet: '#ff6b6b', vest: '#ffd93d', mask: '#6bcbff', fire: '#ff8c42' }
+const COLORS = { helmet: '#ffd740', vest: '#ff8c40', mask: '#66bbff', fire: '#ff5f5f' }
 const LABELS = { helmet: 'Baret', vest: 'Yelek', mask: 'Maske', fire: 'Yangın' }
+
+const CHART_STYLES = {
+  dark: {
+    tick:          '#6a7d96',
+    tooltipBg:     '#1c2133',
+    tooltipBorder: '#2c3650',
+    tooltipLabel:  '#d0d8e8',
+    grid:          '#2c3650',
+    legend:        '#6a7d96',
+  },
+  light: {
+    tick:          '#64748b',
+    tooltipBg:     '#ffffff',
+    tooltipBorder: '#e2e8f0',
+    tooltipLabel:  '#1e293b',
+    grid:          '#e2e8f0',
+    legend:        '#64748b',
+  },
+}
 
 const RISK_COLORS = {
   low:      '#4ade80',
@@ -67,7 +86,8 @@ function formatSavedDate(period, report_date) {
     .toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })
 }
 
-export default function Reports() {
+export default function Reports({ theme = 'dark' }) {
+  const cs = CHART_STYLES[theme] || CHART_STYLES.dark
   const [period, setPeriod]         = useState('weekly')
   const [dailyDate, setDailyDate]   = useState(today())
   const [weekStr,   setWeekStr]     = useState(currentWeekStr())
@@ -330,7 +350,7 @@ export default function Reports() {
                 {trend.icon}
               </div>
               <div className="rp-trend-pct" style={{ color: trend.color }}>
-                {comparison.change_percent !== null
+                {comparison.change_percent != null
                   ? `${comparison.change_percent > 0 ? '+' : ''}${comparison.change_percent}%`
                   : '—'}
               </div>
@@ -370,23 +390,23 @@ export default function Reports() {
         ) : (
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={chartData} margin={{ top: 10, right: 20, left: -10, bottom: 40 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#2a2a4e" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke={cs.grid} vertical={false} />
               <XAxis
                 dataKey="label"
-                tick={{ fill: '#7a8aa0', fontSize: 11 }}
+                tick={{ fill: cs.tick, fontSize: 11 }}
                 axisLine={false}
                 tickLine={false}
                 angle={period !== 'daily' ? -35 : 0}
                 textAnchor={period !== 'daily' ? 'end' : 'middle'}
                 interval={period === 'monthly' ? 2 : 0}
               />
-              <YAxis tick={{ fill: '#7a8aa0', fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
+              <YAxis tick={{ fill: cs.tick, fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
               <Tooltip
-                contentStyle={{ background: '#1a1a2e', border: '1px solid #2a2a4e', borderRadius: 6, fontSize: 12 }}
-                labelStyle={{ color: '#c0cde0', marginBottom: 4 }}
-                cursor={{ fill: 'rgba(255,255,255,0.03)' }}
+                contentStyle={{ background: cs.tooltipBg, border: `1px solid ${cs.tooltipBorder}`, borderRadius: 6, fontSize: 12 }}
+                labelStyle={{ color: cs.tooltipLabel, marginBottom: 4 }}
+                cursor={{ fill: 'rgba(128,128,128,0.04)' }}
               />
-              <Legend wrapperStyle={{ fontSize: 12, color: '#7a8aa0', paddingTop: 12 }} formatter={val => LABELS[val] || val} />
+              <Legend wrapperStyle={{ fontSize: 12, color: cs.legend, paddingTop: 12 }} formatter={val => LABELS[val] || val} />
               {Object.keys(COLORS).map(key => (
                 <Bar key={key} dataKey={key} fill={COLORS[key]} stackId="a" radius={key === 'fire' ? [4,4,0,0] : [0,0,0,0]} />
               ))}

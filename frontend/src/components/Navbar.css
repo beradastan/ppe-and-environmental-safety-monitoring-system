@@ -1,7 +1,7 @@
 .navbar {
   height: 52px;
-  background: #0d0d1a;
-  border-bottom: 1px solid #2a2a3e;
+  background: var(--bg-nav);
+  border-bottom: 1px solid #1e2535;
   display: flex;
   align-items: center;
   padding: 0 20px;
@@ -39,11 +39,11 @@
   gap: 6px;
 }
 .navbar__tab:hover {
-  background: #1e1e32;
+  background: #1e2535;
   color: #c0cde0;
 }
 .navbar__tab--active {
-  background: #1a2a4a;
+  background: #122040;
   color: #4da6ff;
   font-weight: 700;
 }
@@ -57,4 +57,25 @@
   border-radius: 8px;
   min-width: 18px;
   text-align: center;
+}
+
+.navbar__theme-btn {
+  margin-left: auto;
+  background: none;
+  border: 1px solid #2a3550;
+  border-radius: 6px;
+  color: #7a8aa0;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+.navbar__theme-btn:hover {
+  background: #1e2535;
+  color: #c0cde0;
+  border-color: #4da6ff;
 }

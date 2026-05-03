@@ -11,7 +11,7 @@
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: #7a8aa0;
+  color: var(--text-2);
   font-size: 0.9rem;
 }
 
@@ -33,15 +33,15 @@
 }
 
 .settings-section {
-  background: #141428;
-  border: 1px solid #2a2a3e;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 20px;
 }
 .settings-section__title {
   font-size: 0.78rem;
   font-weight: 700;
-  color: #7a8aa0;
+  color: var(--text-2);
   text-transform: uppercase;
   letter-spacing: 0.07em;
   margin-bottom: 16px;
@@ -49,7 +49,7 @@
 
 .settings-section__hint {
   font-size: 0.75rem;
-  color: #5a6a7a;
+  color: var(--text-3);
   margin: -8px 0 14px;
   line-height: 1.5;
 }
@@ -65,18 +65,18 @@
   gap: 10px;
   cursor: pointer;
   font-size: 0.88rem;
-  color: #c0cde0;
+  color: var(--text);
   padding: 8px 12px;
   border-radius: 6px;
-  border: 1px solid #2a2a3e;
-  background: #1a1a2e;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
   transition: border-color 0.15s;
 }
-.settings-toggle:hover { border-color: #4d8ef0; }
+.settings-toggle:hover { border-color: var(--accent); }
 .settings-toggle input[type="checkbox"] {
   width: 16px;
   height: 16px;
-  accent-color: #4da6ff;
+  accent-color: var(--accent);
 }
 
 .slider-row {
@@ -88,20 +88,20 @@
 .slider-row:last-child { margin-bottom: 0; }
 .slider-label {
   font-size: 0.85rem;
-  color: #c0cde0;
+  color: var(--text);
   width: 220px;
   flex-shrink: 0;
 }
 .slider-input {
   flex: 1;
-  accent-color: #4da6ff;
+  accent-color: var(--accent);
   height: 4px;
   cursor: pointer;
 }
 .slider-val {
   font-size: 0.85rem;
   font-weight: 700;
-  color: #4da6ff;
+  color: var(--accent);
   width: 42px;
   text-align: right;
   flex-shrink: 0;
@@ -113,8 +113,8 @@
   gap: 16px;
 }
 .settings-save-btn {
-  background: #1a3a6a;
-  color: #4da6ff;
+  background: var(--accent-bg-2);
+  color: var(--accent);
   border: 1px solid #2a5aaa;
   border-radius: 8px;
   padding: 10px 28px;

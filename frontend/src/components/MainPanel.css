@@ -7,13 +7,13 @@
 .main-panel--empty {
   justify-content: center;
   align-items: center;
-  color: #4a5a70;
+  color: var(--text-3);
   font-size: 1rem;
 }
 
 .main-panel__header {
   padding: 16px 24px;
-  border-bottom: 1px solid #2a2a3e;
+  border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   gap: 14px;
@@ -22,9 +22,9 @@
 .main-panel__header h2 {
   font-size: 1.1rem;
   font-weight: 700;
-  color: #c0d0e0;
+  color: var(--text);
 }
-.main-panel__loading { font-size: 0.8rem; color: #7a8aa0; }
+.main-panel__loading { font-size: 0.8rem; color: var(--text-2); }
 
 .main-panel__content {
   flex: 1;
@@ -32,43 +32,43 @@
   padding: 20px 24px;
 }
 .main-panel__content::-webkit-scrollbar { width: 5px; }
-.main-panel__content::-webkit-scrollbar-thumb { background: #3a3a5e; border-radius: 2px; }
+.main-panel__content::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 2px; }
 
 .main-panel__notes {
   margin-top: 32px;
   padding-top: 20px;
-  border-top: 1px solid #2a2a3e;
+  border-top: 1px solid var(--border);
 }
 .notes__title {
   font-size: 0.9rem;
   font-weight: 700;
-  color: #8899bb;
+  color: var(--text-dim);
   margin-bottom: 12px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
 .notes__empty {
   font-size: 0.82rem;
-  color: #4a5a70;
+  color: var(--text-3);
   font-style: italic;
   margin-bottom: 12px;
 }
 .notes__item {
-  background: #1a1f30;
-  border: 1px solid #2a2a4e;
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
   border-radius: 6px;
   padding: 8px 12px;
   margin-bottom: 8px;
 }
 .notes__ts {
   font-size: 0.7rem;
-  color: #5a6a80;
+  color: var(--text-3);
   display: block;
   margin-bottom: 4px;
 }
 .notes__text {
   font-size: 0.85rem;
-  color: #b0c0d8;
+  color: var(--text-dim);
   line-height: 1.4;
 }
 .notes__form {
@@ -78,20 +78,20 @@
   margin-top: 12px;
 }
 .notes__input {
-  background: #141428;
-  border: 1px solid #2a2a4e;
+  background: var(--surface);
+  border: 1px solid var(--border-2);
   border-radius: 6px;
-  color: #c0cde0;
+  color: var(--text);
   font-size: 0.85rem;
   padding: 8px 10px;
   resize: vertical;
   font-family: inherit;
 }
-.notes__input:focus { outline: none; border-color: #4d8ef0; }
+.notes__input:focus { outline: none; border-color: var(--accent); }
 .notes__btn {
   align-self: flex-end;
-  background: #1a3a6a;
-  color: #4da6ff;
+  background: var(--accent-bg-2);
+  color: var(--accent);
   border: 1px solid #2a5aaa;
   border-radius: 6px;
   padding: 6px 18px;

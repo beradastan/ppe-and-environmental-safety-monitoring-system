@@ -1,6 +1,6 @@
 .pc-panel {
-  background: #141428;
-  border: 1px solid #2a3a5e;
+  background: var(--surface);
+  border: 1px solid var(--border-2);
   border-radius: 10px;
   padding: 18px 20px;
   margin-bottom: 20px;
@@ -13,7 +13,6 @@
   align-items: start;
 }
 
-/* ── Left: controls ── */
 .pc-header {
   display: flex;
   align-items: center;
@@ -24,7 +23,7 @@
 .pc-title {
   font-size: 0.82rem;
   font-weight: 700;
-  color: #7a8aa0;
+  color: var(--text-2);
   text-transform: uppercase;
   letter-spacing: 0.07em;
   margin: 0;
@@ -33,11 +32,11 @@
 .pc-badge {
   font-size: 0.72rem;
   font-weight: 600;
-  color: #4a5a70;
+  color: var(--text-3);
   padding: 2px 8px;
   border-radius: 20px;
-  background: #1e1e36;
-  border: 1px solid #2a2a4e;
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
 }
 
 .pc-badge--on {
@@ -60,10 +59,10 @@
 
 .pc-path-input {
   flex: 1;
-  background: #0e0e22;
-  border: 1px solid #3a3a5e;
+  background: var(--input-bg);
+  border: 1px solid var(--border-2);
   border-radius: 6px;
-  color: #c0cde0;
+  color: var(--text);
   font-size: 0.8rem;
   padding: 7px 10px;
   font-family: monospace;
@@ -72,7 +71,7 @@
 }
 
 .pc-path-input:focus {
-  border-color: #4a8aff;
+  border-color: var(--accent);
 }
 
 .pc-path-input:disabled {
@@ -80,14 +79,14 @@
 }
 
 .pc-path-input::placeholder {
-  color: #3a4a60;
+  color: var(--text-3);
 }
 
 .pc-browse-btn {
-  background: #1e1e36;
-  border: 1px solid #3a3a5e;
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
   border-radius: 6px;
-  color: #a0b0c8;
+  color: var(--text-dim);
   font-size: 0.8rem;
   padding: 7px 14px;
   cursor: pointer;
@@ -96,8 +95,8 @@
 }
 
 .pc-browse-btn:hover:not(:disabled) {
-  background: #2a2a4e;
-  border-color: #5a7aff;
+  background: var(--surface-2);
+  border-color: var(--accent);
 }
 
 .pc-browse-btn:disabled {
@@ -142,10 +141,9 @@
 
 .pc-btn--stop:hover:not(:disabled) { background: #4a1412; }
 
-/* ── Right: stream ── */
 .pc-stream-box {
-  background: #0a0a1a;
-  border: 1px solid #2a2a4e;
+  background: var(--surface-deep);
+  border: 1px solid var(--border-2);
   border-radius: 8px;
   overflow: hidden;
   aspect-ratio: 16 / 9;
@@ -162,7 +160,7 @@
 }
 
 .pc-stream-placeholder {
-  color: #3a4a60;
+  color: var(--text-3);
   font-size: 0.83rem;
   font-style: italic;
 }
