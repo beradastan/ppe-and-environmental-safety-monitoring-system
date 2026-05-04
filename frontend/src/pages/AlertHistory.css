@@ -31,9 +31,15 @@
   padding: 6px 10px;
   width: 100%;
   font-family: inherit;
+  transition: border-color 0.15s;
+  color-scheme: inherit;
 }
-.ah-filter-input:focus { outline: none; border-color: var(--accent); }
+.ah-filter-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-bg); }
+.ah-filter-input:hover:not(:focus) { border-color: var(--border-2); }
 .ah-filter-input option { background: var(--surface-2); }
+
+/* Tarih inputunda placeholder (boşken) daha soluk */
+.ah-filter-input[type="date"]:not([value]) { color: var(--text-3); }
 
 .ah-clear-btn {
   background: #2a1a1a;

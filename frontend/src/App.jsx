@@ -99,6 +99,7 @@ export default function App() {
               onNavigate={navigateTo}
               onSelectEvent={handleSelectFromDashboard}
               theme={theme}
+              socket={socket}
             />
           )}
           {page === 'alerts' && (

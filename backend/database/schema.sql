@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS events (
     signature        JSONB,
     llm_report       TEXT,
     -- Kişi bazlı PPE detayı (track_id, durum, confidence)
-    persons          JSONB
+    persons          JSONB,
+    false_positive   BOOLEAN      NOT NULL DEFAULT FALSE
 );
 
 -- Her event'in tüm durum geçişleri (zaman çizgisi)
@@ -50,10 +51,11 @@ CREATE TABLE IF NOT EXISTS event_notes (
 );
 
 -- Mevcut tablolara kolon ekle (tablo zaten varsa CREATE TABLE IF NOT EXISTS atlanır)
-ALTER TABLE events          ADD COLUMN IF NOT EXISTS persons JSONB;
-ALTER TABLE event_timeline  ADD COLUMN IF NOT EXISTS persons JSONB;
-ALTER TABLE events          ADD COLUMN IF NOT EXISTS camera_id VARCHAR(20);
-ALTER TABLE events          ADD COLUMN IF NOT EXISTS zone      VARCHAR(50);
+ALTER TABLE events          ADD COLUMN IF NOT EXISTS persons        JSONB;
+ALTER TABLE event_timeline  ADD COLUMN IF NOT EXISTS persons        JSONB;
+ALTER TABLE events          ADD COLUMN IF NOT EXISTS camera_id      VARCHAR(20);
+ALTER TABLE events          ADD COLUMN IF NOT EXISTS zone           VARCHAR(50);
+ALTER TABLE events          ADD COLUMN IF NOT EXISTS false_positive BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- Otomatik ve manuel oluşturulan LLM raporları
 CREATE TABLE IF NOT EXISTS llm_reports (
@@ -76,4 +78,5 @@ CREATE INDEX IF NOT EXISTS idx_events_mask        ON events(mask_violation);
 CREATE INDEX IF NOT EXISTS idx_events_fire        ON events(fire_detected);
 CREATE INDEX IF NOT EXISTS idx_timeline_event_id  ON event_timeline(event_id);
 CREATE INDEX IF NOT EXISTS idx_timeline_ts        ON event_timeline(ts DESC);
-CREATE INDEX IF NOT EXISTS idx_notes_event_id     ON event_notes(event_id);
+CREATE INDEX IF NOT EXISTS idx_notes_event_id       ON event_notes(event_id);
+CREATE INDEX IF NOT EXISTS idx_events_false_positive ON events(false_positive);

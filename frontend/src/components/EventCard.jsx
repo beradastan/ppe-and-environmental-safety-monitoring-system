@@ -5,7 +5,10 @@ import './EventCard.css'
 function formatTime(iso) {
   if (!iso) return '—'
   try {
-    return new Date(iso).toLocaleTimeString('tr-TR')
+    return new Date(iso).toLocaleString('tr-TR', {
+      day: 'numeric', month: 'long', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    })
   } catch {
     return iso
   }

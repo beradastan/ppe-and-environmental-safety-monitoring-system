@@ -25,17 +25,26 @@ const CHART_STYLES = {
   },
 }
 
-export default function Dashboard({ onNavigate, onSelectEvent, theme = 'dark' }) {
+export default function Dashboard({ onNavigate, onSelectEvent, theme = 'dark', socket }) {
   const cs = CHART_STYLES[theme] || CHART_STYLES.dark
   const [stats, setStats]     = useState(null)
   const [loading, setLoading] = useState(true)
 
+  function loadStats() {
+    fetchStats().then(setStats).catch(console.error).finally(() => setLoading(false))
+  }
+
+  useEffect(() => { loadStats() }, [])
+
   useEffect(() => {
-    fetchStats()
-      .then(setStats)
-      .catch(console.error)
-      .finally(() => setLoading(false))
-  }, [])
+    if (!socket) return
+    socket.on('new_alert',    loadStats)
+    socket.on('event_closed', loadStats)
+    return () => {
+      socket.off('new_alert',    loadStats)
+      socket.off('event_closed', loadStats)
+    }
+  }, [socket])
 
   if (loading) return <div className="db-loading">Yükleniyor…</div>
   if (!stats)  return <div className="db-loading">Veri alınamadı.</div>

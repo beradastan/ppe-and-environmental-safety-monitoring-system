@@ -278,7 +278,3 @@ class ReportSummaryService:
             "risk_summary": agg["risk_summary"]
         }
 
-class ReportRepository:
-    def save_report(self, report_data: Dict[str, Any], path: str):
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(report_data, f, ensure_ascii=False, indent=2)

@@ -75,7 +75,7 @@ function formatSavedDate(period, report_date) {
   if (period === 'weekly') {
     const s = new Date(report_date + 'T12:00:00')
     const e = new Date(s); e.setDate(s.getDate() + 6)
-    const opts = { day: 'numeric', month: 'short' }
+    const opts = { day: 'numeric', month: 'long' }
     return `${s.toLocaleDateString('tr-TR', opts)} – ${e.toLocaleDateString('tr-TR', opts)} ${s.getFullYear()}`
   }
   if (period === 'monthly') {
@@ -490,7 +490,7 @@ export default function Reports({ theme = 'dark' }) {
                   <span className="rp-saved-row-right">
                     {r.auto_generated && <span className="rp-saved-auto">Otomatik</span>}
                     <span className="rp-saved-time">
-                      {new Date(r.generated_at).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })}
+                      {new Date(r.generated_at).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}
                     </span>
                   </span>
                 </li>

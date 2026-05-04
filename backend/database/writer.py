@@ -176,18 +176,25 @@ def resolve_event(event_id: str) -> None:
         logger.error("resolve_event hatasi: %s", exc, exc_info=True)
 
 
-def update_llm_report(event_id: str, llm_report: str) -> None:
-    """events tablosunda llm_report alanını günceller."""
+def mark_false_positive(event_id: str) -> None:
+    """Event'i yanlış tespit olarak işaretler; henüz kapatılmamışsa kapatır."""
     now = datetime.now()
     try:
         with db_cursor() as cur:
             cur.execute(
-                "UPDATE events SET llm_report = %s, updated_at = %s WHERE event_id = %s",
-                (llm_report, now, event_id),
+                """
+                UPDATE events
+                SET false_positive = TRUE,
+                    event_status   = CASE WHEN event_status != 'closed' THEN 'closed' ELSE event_status END,
+                    updated_at     = %s
+                WHERE event_id = %s
+                """,
+                (now, event_id),
             )
-        logger.debug("LLM raporu guncellendi: %s", event_id)
+        logger.debug("Yanlis tespit isaretlendi: %s", event_id)
     except Exception as exc:
-        logger.error("update_llm_report hatasi: %s", exc, exc_info=True)
+        logger.error("mark_false_positive hatasi: %s", exc, exc_info=True)
+
 
 
 def save_llm_report(

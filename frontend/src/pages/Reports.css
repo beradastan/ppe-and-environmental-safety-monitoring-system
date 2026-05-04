@@ -20,6 +20,7 @@
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
+  height: 36px;
 }
 .rp-tab {
   background: none;
@@ -27,9 +28,10 @@
   color: var(--text-2);
   font-size: 0.85rem;
   font-weight: 500;
-  padding: 8px 18px;
+  padding: 0 18px;
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
+  height: 100%;
 }
 .rp-tab:hover { background: var(--surface-2); color: var(--text); }
 .rp-tab--active { background: var(--accent-bg); color: var(--accent); font-weight: 700; }
@@ -51,10 +53,14 @@
   border-radius: 6px;
   color: var(--text);
   font-size: 0.82rem;
-  padding: 6px 10px;
+  padding: 7px 10px;
   font-family: inherit;
+  height: 36px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  color-scheme: inherit;
 }
-.rp-date-input:focus { outline: none; border-color: var(--accent); }
+.rp-date-input:hover:not(:focus) { border-color: var(--border-2); }
+.rp-date-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-bg); }
 
 .rp-export-btns {
   display: flex;

@@ -16,7 +16,6 @@ import argparse
 import json
 import sys
 import threading
-import time
 import os
 import cv2
 import yaml
@@ -104,211 +103,6 @@ def _close_event(event_id: str, repeat_count: int | None = None, duration_sec: f
 # LLM entegrasyonu (her iki modda da etkin, config.yaml llm.enabled ile kontrol)
 # ---------------------------------------------------------------------------
 
-_llm_threads: list[threading.Thread] = []
-
-_KW_MAP = {"no_helmet": "baret", "no_vest": "yelek", "no_mask": "maske"}
-
-_SYS_OPT2 = (
-    "Sen bir fabrika iş güvenliği uzmanısın.\n"
-    "Verilen olay verisini analiz et ve profesyonel, akıcı Türkçe ile 2-3 cümle yaz.\n"
-    "1. cümle: Ne tespit edildi (kişi numaralarını ve eksik KKD'leri belirt).\n"
-    "2. cümle: Bu durumun riski veya önemi.\n"
-    "3. cümle (varsa): Önerilen acil eylem.\n"
-    "Sadece verilen verileri kullan, bilgi uydurma. Selamlama veya ekstra cümle yazma."
-)
-_SYS_OPT3_LOW = (
-    "Sen bir fabrika iş güvenliği asistanısın.\n"
-    "Düşük öncelikli KKD ihlali tespit edildi.\n"
-    "Kısa, sakin, bilgilendirici 1-2 cümle yaz.\n"
-    "Kişi numarasını ve eksik KKD'yi belirt; sonunda basit bir hatırlatma ekle.\n"
-    "Sadece Türkçe, sadece verilen verileri kullan."
-)
-_SYS_OPT3_MEDIUM = (
-    "Sen bir fabrika iş güvenliği uzmanısın.\n"
-    "Orta öncelikli KKD ihlali tespit edildi.\n"
-    "2-3 cümle yaz: önce durumu açıkla, sonra riski vurgula, sonra net bir eylem öner.\n"
-    "Resmi ve kararlı ton kullan. Sadece Türkçe, sadece verilen verileri kullan."
-)
-_SYS_OPT3_HIGH = (
-    "Sen bir fabrika acil durum AI sistemisin.\n"
-    "KRİTİK durum tespit edildi.\n"
-    "2 cümle yaz: ilk cümle tehlikeyi net ifade et, ikinci cümle derhal yapılacak eylemi söyle.\n"
-    "Kısa, güçlü, aciliyet hissettiren dil kullan. Sadece Türkçe."
-)
-_SYS_OPT3_MAP = {"LOW": _SYS_OPT3_LOW, "MEDIUM": _SYS_OPT3_MEDIUM, "HIGH": _SYS_OPT3_HIGH}
-
-
-def _load_llm_cfg() -> dict:
-    try:
-        with open("config.yaml", encoding="utf-8") as f:
-            return (yaml.safe_load(f) or {}).get("llm", {})
-    except Exception:
-        return {}
-
-
-def _call_ollama(prompt: str, cfg: dict, system=None, _retries: int = 2, multiline: bool = False):
-    body = {
-        "model":       cfg.get("model", "qwen3:8b"),
-        "prompt":      prompt,
-        "temperature": cfg.get("temperature", 0.1),
-        "stream":      False,
-    }
-    if system:
-        body["system"] = system
-    url     = f"{cfg.get('base_url', 'http://localhost:11434')}/api/generate"
-    timeout = cfg.get("timeout", 120)
-    for attempt in range(1, _retries + 2):
-        try:
-            resp = requests.post(url, json=body, timeout=timeout)
-            if resp.status_code == 200:
-                raw = resp.json().get("response", "").strip()
-                raw = raw.removeprefix("Output:").strip(" \"'\n")
-                if multiline:
-                    if raw:
-                        return raw
-                else:
-                    first_line = raw.split("\n")[0].strip().strip("\"'")
-                    if first_line.endswith("."):
-                        return first_line
-                    if "." in first_line:
-                        return first_line[:first_line.rindex(".") + 1]
-                    if first_line:
-                        return first_line
-                print(f"  [LLM] Boş yanıt (deneme {attempt}), yenileniyor...")
-        except Exception as e:
-            print(f"  [LLM] Hata (deneme {attempt}): {e}")
-        if attempt <= _retries:
-            time.sleep(2)
-    return None
-
-
-def _severity_from_payload(payload: dict) -> str:
-    scene = payload.get("scene", {})
-    if scene.get("fire_detected") or scene.get("smoke_detected"):
-        return "HIGH"
-    persons     = payload.get("persons", [])
-    total_viols = sum(len(p.get("violations", [])) for p in persons)
-    if len(persons) >= 2 or total_viols >= 3:
-        return "MEDIUM"
-    return "LOW"
-
-
-def _build_fact_block(payload: dict) -> str:
-    persons       = payload.get("persons", [])
-    scene         = payload.get("scene", {})
-    repeat_count  = int(payload.get("repeat_count", 1))
-    total_persons = int(payload.get("total_persons", len(persons)))
-    event_type    = payload.get("event_type", "ppe_violation")
-    violator_count = sum(1 for p in persons if p.get("violations"))
-    repeat_suffix  = f" — {repeat_count}. tekrar" if repeat_count > 1 else ""
-    if event_type == "fire_detected":
-        type_tr = "Yangın/duman"
-    elif event_type == "ppe_violation":
-        type_tr = f"KKD ihlali ({violator_count} kişi)" if violator_count > 1 else "KKD ihlali"
-    else:
-        type_tr = f"Çoklu tehlike ({violator_count} kişi)" if violator_count > 1 else "Çoklu tehlike"
-    lines = [f"Olay tipi: {type_tr}{repeat_suffix}"]
-    if scene.get("fire_detected"):
-        lines.append("Sahne: yangın tespit edildi")
-    if scene.get("smoke_detected"):
-        lines.append("Sahne: duman tespit edildi")
-    if total_persons > 0 and violator_count > 0:
-        lines.append(f"Sahada: {total_persons} kişi ({violator_count} ihlal)")
-    for p in persons:
-        viols = p.get("violations", [])
-        if not viols:
-            continue
-        active = [v for v in viols if v in _KW_MAP]
-        if len(active) >= 2:
-            lines.append(f"Kişi #{p['track_id']}: hiçbir KKD yok")
-        else:
-            parts = [_KW_MAP[v] + "=YOK" for v in active]
-            lines.append(f"Kişi #{p['track_id']}: {', '.join(parts)}")
-    return "\n".join(lines)
-
-
-def _build_fire_block(payload: dict) -> str:
-    scene = payload.get("scene", {})
-    lines = ["Olay tipi: Yangın/duman"]
-    if scene.get("fire_detected"):
-        lines.append("Sahne: yangın tespit edildi")
-    if scene.get("smoke_detected"):
-        lines.append("Sahne: duman tespit edildi")
-    return "\n".join(lines)
-
-
-def _build_ppe_block(payload: dict) -> str:
-    persons       = payload.get("persons", [])
-    total_persons = int(payload.get("total_persons", len(persons)))
-    repeat_count  = int(payload.get("repeat_count", 1))
-    violator_count = sum(1 for p in persons if p.get("violations"))
-    repeat_suffix  = f" — {repeat_count}. tekrar" if repeat_count > 1 else ""
-    type_tr = f"KKD ihlali ({violator_count} kişi)" if violator_count > 1 else "KKD ihlali"
-    lines = [f"Olay tipi: {type_tr}{repeat_suffix}"]
-    if total_persons > 0 and violator_count > 0:
-        lines.append(f"Sahada: {total_persons} kişi ({violator_count} ihlal)")
-    for p in persons:
-        viols = p.get("violations", [])
-        if not viols:
-            continue
-        active = [v for v in viols if v in _KW_MAP]
-        if len(active) >= 2:
-            lines.append(f"Kişi #{p['track_id']}: hiçbir KKD yok")
-        else:
-            parts = [_KW_MAP[v] + "=YOK" for v in active]
-            lines.append(f"Kişi #{p['track_id']}: {', '.join(parts)}")
-    return "\n".join(lines)
-
-
-def _patch_llm_report(event_id: str, report: str) -> None:
-    try:
-        requests.patch(
-            f"{_get_backend_url()}/api/events/{event_id}/llm",
-            json={"llm_report": report},
-            timeout=5,
-        )
-        print(f"  [LLM] Backend bildirildi: {event_id}")
-    except Exception as e:
-        print(f"  [LLM] Backend bildirim hatası: {e}")
-
-
-def _llm_report_async(payload: dict, json_path: Path, cfg: dict) -> None:
-    event_id   = payload.get("event_id", "")
-    fallback   = payload.get("alarm_text", "")
-    event_type = payload.get("event_type", "ppe_violation")
-    sev        = _severity_from_payload(payload)
-
-    if event_type == "multi_hazard":
-        fire_block = _build_fire_block(payload)
-        ppe_block  = _build_ppe_block(payload)
-        fire2 = _call_ollama(fire_block, cfg, system=_SYS_OPT2,         multiline=True) or fallback
-        ppe2  = _call_ollama(ppe_block,  cfg, system=_SYS_OPT2,         multiline=True) or fallback
-        fire3 = _call_ollama(fire_block, cfg, system=_SYS_OPT3_HIGH,    multiline=True) or fallback
-        ppe3  = _call_ollama(ppe_block,  cfg, system=_SYS_OPT3_MAP[sev], multiline=True) or fallback
-        combined = json.dumps({
-            "multi": True,
-            "opt2": {"fire": fire2, "ppe": ppe2},
-            "opt3": {"fire": fire3, "ppe": ppe3},
-            "sev": sev,
-        }, ensure_ascii=False)
-        print(f"  [LLM] Çoklu tehlike raporları yazıldı ({sev}): {json_path.name}")
-    else:
-        fact = _build_fact_block(payload)
-        opt2 = _call_ollama(fact, cfg, system=_SYS_OPT2,          multiline=True) or fallback
-        opt3 = _call_ollama(fact, cfg, system=_SYS_OPT3_MAP[sev], multiline=True) or fallback
-        combined = json.dumps({"opt2": opt2, "opt3": opt3, "sev": sev}, ensure_ascii=False)
-        print(f"  [LLM] Raporlar yazıldı ({sev}): {json_path.name}")
-        print(f"    Opt2: {opt2[:80]}")
-
-    try:
-        with open(json_path, encoding="utf-8") as f:
-            data = json.load(f)
-        data["llm_report"] = combined
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print(f"  [LLM] JSON yazma hatası: {e}")
-    _patch_llm_report(event_id, combined)
 
 
 # ---------------------------------------------------------------------------
@@ -785,16 +579,6 @@ def save_event(
         json.dump(payload, f, ensure_ascii=False, indent=2)
     cv2.imwrite(str(img_path), frame)
     print(f"  [KAYIT] {event_id}/new  alarm: {alarm_text}")
-
-    llm_cfg = _load_llm_cfg()
-    if llm_cfg.get("enabled", False):
-        t = threading.Thread(
-            target=_llm_report_async,
-            args=(payload, json_path, llm_cfg),
-            daemon=False,
-        )
-        t.start()
-        _llm_threads.append(t)
 
     try:
         import winsound
@@ -1350,12 +1134,6 @@ def run(args):
         if event_manager._active is not None:
             ev = event_manager._active
             _close_event(ev.event_id, ev.repeat_count, ev.duration_sec)
-        pending = [t for t in _llm_threads if t.is_alive()]
-        if pending:
-            print(f"  LLM thread'leri bekleniyor ({len(pending)} adet)...")
-            for t in pending:
-                t.join(timeout=180)
-        _llm_threads.clear()
 
 
 # ---------------------------------------------------------------------------

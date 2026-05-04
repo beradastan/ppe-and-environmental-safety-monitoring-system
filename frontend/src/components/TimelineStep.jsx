@@ -4,14 +4,18 @@ import './TimelineStep.css'
 
 function formatDateTime(iso) {
   if (!iso) return '—'
-  try { return new Date(iso).toLocaleString('tr-TR') }
-  catch { return iso }
+  try {
+    return new Date(iso).toLocaleString('tr-TR', {
+      day: 'numeric', month: 'long', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    })
+  } catch { return iso }
 }
 
 export default function TimelineStep({ step }) {
   const {
     event_id, event_status, timestamp, repeat_count,
-    duration_sec, change_reason, signature, llm_report, image_filename,
+    duration_sec, change_reason, signature, image_filename,
   } = step
 
   const sig = signature || {}
@@ -59,49 +63,6 @@ export default function TimelineStep({ step }) {
             loading="lazy"
           />
         )}
-
-        {llm_report && (() => {
-          let parsed = null
-          try { parsed = JSON.parse(llm_report) } catch {}
-          if (!parsed) return <blockquote className="tl-step__llm">{llm_report}</blockquote>
-
-          const SEV = { LOW: 'Düşük', MEDIUM: 'Orta', HIGH: 'Yüksek' }
-          const sevLabel = SEV[parsed.sev] || parsed.sev
-
-          if (parsed.multi) {
-            return (
-              <div className="tl-step__llm-compare">
-                <div className="tl-step__llm-item">
-                  <span className="tl-step__llm-tag tl-step__llm-tag--2">Serbest Analiz</span>
-                  {parsed.opt2?.fire && <p className="tl-step__llm-text"><span className="tl-step__llm-sub">🔥 Yangın</span>{parsed.opt2.fire}</p>}
-                  {parsed.opt2?.ppe  && <p className="tl-step__llm-text"><span className="tl-step__llm-sub">⚠ KKD</span>{parsed.opt2.ppe}</p>}
-                </div>
-                <div className="tl-step__llm-item">
-                  <span className="tl-step__llm-tag tl-step__llm-tag--3">Ton: {sevLabel}</span>
-                  {parsed.opt3?.fire && <p className="tl-step__llm-text"><span className="tl-step__llm-sub">🔥 Yangın</span>{parsed.opt3.fire}</p>}
-                  {parsed.opt3?.ppe  && <p className="tl-step__llm-text"><span className="tl-step__llm-sub">⚠ KKD</span>{parsed.opt3.ppe}</p>}
-                </div>
-              </div>
-            )
-          }
-
-          return (
-            <div className="tl-step__llm-compare">
-              {parsed.opt2 && (
-                <div className="tl-step__llm-item">
-                  <span className="tl-step__llm-tag tl-step__llm-tag--2">Serbest Analiz</span>
-                  <p className="tl-step__llm-text">{parsed.opt2}</p>
-                </div>
-              )}
-              {parsed.opt3 && (
-                <div className="tl-step__llm-item">
-                  <span className="tl-step__llm-tag tl-step__llm-tag--3">Ton: {sevLabel}</span>
-                  <p className="tl-step__llm-text">{parsed.opt3}</p>
-                </div>
-              )}
-            </div>
-          )
-        })()}
 
       </div>
     </div>

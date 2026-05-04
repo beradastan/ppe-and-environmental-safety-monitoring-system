@@ -30,18 +30,19 @@ def _ts(val) -> str:
 
 def _row_to_event(row) -> dict:
     # (event_id, event_status, updated_at, repeat_count,
-    #  duration_sec, signature, llm_report, has_image, camera_id, zone)
+    #  duration_sec, signature, llm_report, has_image, camera_id, zone, false_positive)
     return {
-        "event_id":      row[0],
-        "event_status":  row[1],
-        "timestamp":     _ts(row[2]),
-        "repeat_count":  row[3],
-        "duration_sec":  float(row[4]),
-        "signature":     row[5] or {},
-        "llm_report":    row[6],
-        "has_image":     bool(row[7]),
-        "camera_id":     row[8],
-        "zone":          row[9],
+        "event_id":       row[0],
+        "event_status":   row[1],
+        "timestamp":      _ts(row[2]),
+        "repeat_count":   row[3],
+        "duration_sec":   float(row[4]),
+        "signature":      row[5] or {},
+        "llm_report":     row[6],
+        "has_image":      bool(row[7]),
+        "camera_id":      row[8],
+        "zone":           row[9],
+        "false_positive": bool(row[10]),
     }
 
 
@@ -61,7 +62,8 @@ def _base_query() -> str:
                   AND t.image_filename IS NOT NULL
             ) AS has_image,
             e.camera_id,
-            e.zone
+            e.zone,
+            e.false_positive
         FROM events e
     """
 
@@ -120,16 +122,16 @@ def get_stats() -> dict:
     today = date.today().isoformat()
 
     with db_cursor() as cur:
-        cur.execute("SELECT COUNT(*) FROM events")
+        cur.execute("SELECT COUNT(*) FROM events WHERE false_positive = FALSE")
         total = cur.fetchone()[0]
 
         cur.execute(
-            "SELECT COUNT(*) FROM events WHERE event_status IN ('new','active')"
+            "SELECT COUNT(*) FROM events WHERE event_status IN ('new','active') AND false_positive = FALSE"
         )
         active = cur.fetchone()[0]
 
         cur.execute(
-            "SELECT COUNT(*) FROM events WHERE DATE(updated_at) = %s", (today,)
+            "SELECT COUNT(*) FROM events WHERE DATE(updated_at) = %s AND false_positive = FALSE", (today,)
         )
         today_ct = cur.fetchone()[0]
 
@@ -141,6 +143,7 @@ def get_stats() -> dict:
                 SUM(mask_violation::int),
                 SUM(fire_detected::int)
             FROM events
+            WHERE false_positive = FALSE
             """
         )
         row = cur.fetchone()
@@ -151,9 +154,9 @@ def get_stats() -> dict:
             "fire":   int(row[3] or 0),
         }
 
-        # Son 5 event
+        # Son 5 event (false positive olmayanlar)
         cur.execute(
-            _base_query() + " ORDER BY e.updated_at DESC LIMIT 5"
+            _base_query() + " WHERE e.false_positive = FALSE ORDER BY e.updated_at DESC LIMIT 5"
         )
         recent = [_row_to_event(r) for r in cur.fetchall()]
 
@@ -180,6 +183,7 @@ def get_events_for_summary(start_date: str, end_date: str) -> list[dict]:
                    camera_id, zone
             FROM events
             WHERE DATE(created_at) >= %s AND DATE(created_at) <= %s
+              AND false_positive = FALSE
             ORDER BY created_at ASC
             """,
             (start_date, end_date),
@@ -226,7 +230,7 @@ def get_report_data(period: str, date_str: str | None = None) -> list[dict]:
                     TO_CHAR(updated_at AT TIME ZONE 'UTC', 'HH24') AS hr,
                     helmet_violation, vest_violation, mask_violation, fire_detected
                 FROM events
-                WHERE DATE(updated_at) = %s
+                WHERE DATE(updated_at) = %s AND false_positive = FALSE
                 """,
                 (target.isoformat(),),
             )
@@ -268,7 +272,7 @@ def get_report_data(period: str, date_str: str | None = None) -> list[dict]:
                 DATE(updated_at)::text AS day,
                 helmet_violation, vest_violation, mask_violation, fire_detected
             FROM events
-            WHERE DATE(updated_at) BETWEEN %s AND %s
+            WHERE DATE(updated_at) BETWEEN %s AND %s AND false_positive = FALSE
             """,
             (days[0], days[-1]),
         )

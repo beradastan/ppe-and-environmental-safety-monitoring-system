@@ -150,3 +150,34 @@
   color: var(--text-2);
   flex-shrink: 0;
 }
+
+/* New format: single report with severity badge */
+.tl-step__llm-wrap {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border-radius: 4px;
+  border-left: 3px solid var(--border-2);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tl-step__sev-badge {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 3px;
+  width: fit-content;
+}
+.tl-step__sev-badge--low    { background: #1a2a1a; color: #5dbb5d; border: 1px solid #2a4a2a; }
+.tl-step__sev-badge--medium { background: #2a1e0a; color: #d4820a; border: 1px solid #4a3010; }
+.tl-step__sev-badge--high   { background: #2a0f0f; color: #e05555; border: 1px solid #4a1a1a; }
+
+.tl-step__llm-wrap .tl-step__llm-text {
+  margin: 0;
+  display: block;
+}

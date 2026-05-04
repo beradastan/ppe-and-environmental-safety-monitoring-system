@@ -90,7 +90,6 @@ class _Handler(FileSystemEventHandler):
             "event_status": data.get("event_status", ""),
             "timestamp":    data.get("timestamp", ""),
             "signature":    data.get("signature", {}),
-            "llm_report":   data.get("llm_report"),
         }
 
         logger.info(f"[ALERT] {payload['event_id']} → {payload['event_status']}")

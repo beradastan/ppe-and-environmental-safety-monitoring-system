@@ -17,7 +17,7 @@ export default function SignatureSummary({ signature }) {
     fire_detected
 
   if (!hasViolation) {
-    return <div className="sig-clear">Tüm personel PPE uyumlu</div>
+    return null
   }
 
   return (

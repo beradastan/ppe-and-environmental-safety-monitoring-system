@@ -26,6 +26,16 @@ async function _post(path, body) {
   return res.json()
 }
 
+async function _patch(path, body) {
+  const res = await fetch(BASE + path, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`PATCH ${path} → ${res.status}`)
+  return res.json()
+}
+
 export function fetchEvents(filters = {}) {
   const params = new URLSearchParams()
   if (filters.date)           params.set('date', filters.date)
@@ -102,4 +112,8 @@ export function fetchSavedReports(period) {
 
 export function fetchSavedReport(id) {
   return _get(`/api/reports/saved/${id}`)
+}
+
+export function markFalsePositive(eventId) {
+  return _patch(`/api/events/${eventId}/false-positive`, {})
 }

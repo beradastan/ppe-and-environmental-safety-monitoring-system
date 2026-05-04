@@ -1,5 +1,6 @@
 /* ── Theme variables ── */
 :root {
+  color-scheme: dark;
   --bg:              #0f1117;
   --bg-nav:          #0c0e15;
   --surface:         #161b27;
@@ -40,6 +41,7 @@
 }
 
 [data-theme="light"] {
+  color-scheme: light;
   --bg:              #f0f4f8;
   --surface:         #ffffff;
   --surface-2:       #f1f5f9;
@@ -111,6 +113,26 @@ body {
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: var(--scroll-track); }
 ::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 3px; }
+
+/* ── Tarih / Hafta / Ay seçici — takvim ikonu tema rengi ── */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="week"]::-webkit-calendar-picker-indicator,
+input[type="month"]::-webkit-calendar-picker-indicator {
+  filter: invert(60%) sepia(20%) saturate(400%) hue-rotate(190deg) brightness(90%);
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+input[type="date"]::-webkit-calendar-picker-indicator:hover,
+input[type="week"]::-webkit-calendar-picker-indicator:hover,
+input[type="month"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+[data-theme="light"] input[type="date"]::-webkit-calendar-picker-indicator,
+[data-theme="light"] input[type="week"]::-webkit-calendar-picker-indicator,
+[data-theme="light"] input[type="month"]::-webkit-calendar-picker-indicator {
+  filter: invert(30%) sepia(10%) saturate(300%) hue-rotate(190deg) brightness(80%);
+}
 
 /* ── Kamera durum banner ── */
 .cam-status-bar {

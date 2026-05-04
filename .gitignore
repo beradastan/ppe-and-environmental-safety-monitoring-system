@@ -49,6 +49,7 @@ frontend/node_modules/
 # Results and logs
 results/*
 !results/.gitkeep
+*.log
 test_results/*
 !test_results/.gitkeep
 

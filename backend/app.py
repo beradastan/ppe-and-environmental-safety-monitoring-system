@@ -163,8 +163,8 @@ RESULTS_DIR  = (PROJECT_ROOT / _config.get("results_dir", "results")).resolve()
 # Doğrulama
 # ---------------------------------------------------------------------------
 
-_EVENT_ID_RE = re.compile(r"^evt_\d+$")
-_FILENAME_RE = re.compile(r"^evt_\d+_(new|update_\d+|closed)\.jpg$")
+_EVENT_ID_RE = re.compile(r"^evt_[a-zA-Z0-9_]+$")
+_FILENAME_RE = re.compile(r"^evt_[a-zA-Z0-9_]+(new|update_\d+|closed)\.jpg$")
 _PERIOD_RE   = re.compile(r"^(daily|weekly|monthly)$")
 _DATE_RE     = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _VT_RE       = re.compile(r"^(helmet|vest|mask|fire)$")
@@ -460,19 +460,16 @@ def api_resolve_event(event_id: str):
     return jsonify({"ok": True})
 
 
-@app.route("/api/events/<event_id>/llm", methods=["PATCH"])
-def api_patch_llm(event_id: str):
+@app.route("/api/events/<event_id>/false-positive", methods=["PATCH"])
+def api_false_positive(event_id: str):
     if not _EVENT_ID_RE.match(event_id):
         abort(400, "Geçersiz event_id.")
-    body   = request.get_json(silent=True) or {}
-    report = str(body.get("llm_report", "")).strip()
-    if not report:
-        abort(400, "llm_report boş olamaz.")
     if _USE_DB:
-        from backend.database.writer import update_llm_report
-        update_llm_report(event_id, report)
-    socketio.emit("llm_updated", {"event_id": event_id, "llm_report": report})
+        from backend.database.writer import mark_false_positive
+        mark_false_positive(event_id)
+    socketio.emit("event_closed", {"event_id": event_id})
     return jsonify({"ok": True})
+
 
 
 _pipeline_proc:      "_subprocess.Popen | None" = None

@@ -35,7 +35,7 @@ export default function AlertHistory({ initialSelectedId, onEventSelect, socket 
       .then(data => setEvents(data.events || []))
       .catch(console.error)
       .finally(() => setListLoading(false))
-  }, [])
+  }, [filters])
 
   const loadTimeline = useCallback((id) => {
     setDetailLoading(true)
@@ -136,9 +136,12 @@ export default function AlertHistory({ initialSelectedId, onEventSelect, socket 
 
       <MainPanel
         eventId={selectedId}
+        eventStatus={events.find(e => e.event_id === selectedId)?.event_status}
+        falsePositive={events.find(e => e.event_id === selectedId)?.false_positive}
         timeline={timeline}
         notes={notes}
         loading={detailLoading}
+        onClose={() => loadEvents(filters)}
       />
     </div>
   )
