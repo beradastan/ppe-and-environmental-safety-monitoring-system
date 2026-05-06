@@ -216,3 +216,49 @@ camera_status     → kamera durumu {status: online|offline|frozen|dark, camera_
 
 ## config.yaml Bölümleri
 `database`, `backend`, `detection`, `ppe_pipeline`, `models` (crop/scene alt bölümleri dahil), `event_manager`, `llm`, `results_keep_events`
+
+## Kesinleşmiş Pipeline Parametreleri (benchmark ile doğrulandı)
+| Parametre | Değer | Kaynak |
+|-----------|-------|--------|
+| `PPE_INFER_EVERY` | 4 | benchmark_skip.py — skip=4: 29.4 FPS (+133% vs skip=1), doğruluk kaybı yok |
+| `temporal_window` | 20 | benchmark_temporal.py — window=20 elbow; üstünde V-viol monoton düşüyor |
+| `helmet_conf` | 0.20 | benchmark_conf.py — 0.15+ plato, 0.20 seçildi |
+| `vest_conf` | 0.30 | benchmark_conf.py — 0.30'da violation_rate artar, known_rate kaybı kabul edilebilir |
+| `mask_conf` | 0.25 | benchmark_conf.py — tüm değerlerde viol=%100, 0.25 gürültü filtresi için optimal |
+
+`PPE_INFER_EVERY` config.yaml'da yok — `run_live_video.py` içinde hardcoded sabit olarak tanımlı.
+
+## Mezuniyet Tezi — TEZ_TASLAK.md
+Tez taslağı bu repo kökünde `TEZ_TASLAK.md` dosyasında tutulmaktadır (~1811 satır, Mayıs 2026).
+
+**Tamamlanan bölümler:**
+```
+ÖZET + ABSTRACT
+SİMGELER VE KISALTMALAR   (31 kısaltma, alfabetik)
+1. GİRİŞ
+2. YÖNTEM (2.1–2.8)
+3. BULGULAR (3.1–3.7)
+   3.4.4 PPE_INFER_EVERY optimizasyonu — benchmark_skip.py sonuçları
+   3.4.5 Conf eşiği optimizasyonu     — benchmark_conf.py sonuçları
+   3.4.6 temporal_window optimizasyonu — benchmark_temporal.py sonuçları
+   3.7   Literatür karşılaştırması     — Nath 2020, Wu 2019 vs SafetyMonitor
+4. SONUÇ  (optimizasyon + literatür karşılaştırma alt başlıkları dahil)
+KAYNAKLAR  [1]–[13] APA formatı
+EK-1  Fizibilite Raporu (7 alt bölüm: problem, teknik, operasyonel, süre, maliyet, risk, sonuç)
+EK-2  Proje Dizin Yapısı
+EK-3  config.yaml tam içeriği
+EK-4  Veritabanı Şeması (schema.sql)
+EK-5  API Endpoint Referans Tablosu
+EK-6  Kesinleşmiş Model Dosyaları
+```
+
+**Kullanıcının kendi yazması gereken bölümler (içerik eksik):**
+- `TEŞEKKÜR` — kişisel
+- `İÇİNDEKİLER` — Word'de otomatik oluşturulur
+- `ÖZGEÇMİŞ` — kişisel
+
+**Benchmark betikleri** (`scripts/` dizini):
+- `benchmark_skip.py` — PPE_INFER_EVERY taraması (1,2,3,4,6,8), 250 frame, 11 video
+- `benchmark_conf.py` — helmet/vest/mask conf bağımsız taraması, 200 frame, 4 video
+- `benchmark_temporal.py` — temporal_window taraması [5,10,15,20,30,40,50], 300 frame, 4 video
+- Sonuçlar: `runs/benchmarks/{skip,conf,temporal}/` altında CSV olarak kaydedildi

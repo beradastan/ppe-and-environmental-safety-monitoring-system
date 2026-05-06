@@ -431,6 +431,63 @@ def api_get_saved_report(report_id: int):
     return jsonify(r)
 
 
+@app.route("/api/reports/export/csv")
+def api_export_csv():
+    period   = request.args.get("period", "weekly")
+    date_str = request.args.get("date", "") or None
+    if not _PERIOD_RE.match(period):
+        abort(400, "period: daily|weekly|monthly")
+    if date_str and not _DATE_RE.match(date_str):
+        abort(400, "date: YYYY-MM-DD")
+    if not _USE_DB:
+        return jsonify({"error": "requires database mode"}), 503
+
+    start, end = _summary_date_range(period, date_str)
+    from backend.database.reader import get_events_for_summary
+    from backend.reports.exporter import generate_csv
+
+    events = get_events_for_summary(start, end)
+    _PERIOD_FILE = {'daily': 'Gunluk', 'weekly': 'Haftalik', 'monthly': 'Aylik'}
+    filename = f"guvenlik_raporu_{_PERIOD_FILE.get(period, period)}_{start}.csv"
+
+    return Response(
+        generate_csv(events, period, start, end),
+        mimetype='text/csv; charset=utf-8',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+    )
+
+
+@app.route("/api/reports/export/pdf")
+def api_export_pdf():
+    period   = request.args.get("period", "weekly")
+    date_str = request.args.get("date", "") or None
+    if not _PERIOD_RE.match(period):
+        abort(400, "period: daily|weekly|monthly")
+    if date_str and not _DATE_RE.match(date_str):
+        abort(400, "date: YYYY-MM-DD")
+    if not _USE_DB:
+        return jsonify({"error": "requires database mode"}), 503
+
+    start, end = _summary_date_range(period, date_str)
+    from backend.database.reader import get_events_for_summary
+    from backend.reports.exporter import generate_pdf
+
+    events = get_events_for_summary(start, end)
+    _PERIOD_FILE = {'daily': 'Gunluk', 'weekly': 'Haftalik', 'monthly': 'Aylik'}
+    filename = f"guvenlik_raporu_{_PERIOD_FILE.get(period, period)}_{start}.pdf"
+
+    try:
+        pdf_bytes = generate_pdf(events, period, start, end)
+    except ImportError:
+        return jsonify({"error": "reportlab kurulu degil: pip install reportlab"}), 500
+
+    return Response(
+        pdf_bytes,
+        mimetype='application/pdf',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+    )
+
+
 @app.route("/api/events/<event_id>/close", methods=["PATCH"])
 def api_close_event(event_id: str):
     if not _EVENT_ID_RE.match(event_id):

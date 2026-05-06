@@ -56,7 +56,7 @@ ppe_pipeline:
   new_confirm_sec: 3
   person_conf: 0.25
   resolved_confirm_sec: 5
-  temporal_window: 30
+  temporal_window: 20
   use_fire: true
   use_helmet: true
   use_mask: true

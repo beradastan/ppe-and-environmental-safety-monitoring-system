@@ -3,7 +3,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Legend,
   ResponsiveContainer, CartesianGrid,
 } from 'recharts'
-import { fetchReports, fetchReportSummary, generateReportLLM, fetchSavedReports, fetchSavedReport } from '../api.js'
+import { fetchReports, fetchReportSummary, generateReportLLM, fetchSavedReports, fetchSavedReport, downloadExportCSV, downloadExportPDF } from '../api.js'
 import socket from '../socket.js'
 import './Reports.css'
 
@@ -104,6 +104,7 @@ export default function Reports({ theme = 'dark' }) {
   const [savedReports, setSavedReports]     = useState([])
   const [savedLoading, setSavedLoading]     = useState(true)
   const [selectedSaved, setSelectedSaved]   = useState(null)   // { id, text, loading }
+  const [exporting, setExporting]           = useState(false)
 
 
   const dateParam =
@@ -189,22 +190,26 @@ export default function Reports({ theme = 'dark' }) {
   const trend       = TREND_META[comparison.trend] || TREND_META.no_data
   const riskColor   = RISK_COLORS[risk.risk_level] || '#7a8aa0'
 
-  function handleCSV() {
-    const PERIOD_LABELS = { daily: 'Günlük', weekly: 'Haftalık', monthly: 'Aylık' }
-    const headers = ['Zaman', 'Baret', 'Yelek', 'Maske', 'Yangın', 'Toplam']
-    const rows = chartData.map(r => [r.label, r.helmet||0, r.vest||0, r.mask||0, r.fire||0, r.total||0])
-    const csv = [headers, ...rows].map(r => r.join(',')).join('\n')
-    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
-    const url  = URL.createObjectURL(blob)
-    const a    = document.createElement('a')
-    a.href     = url
-    a.download = `guvenlik_raporu_${PERIOD_LABELS[period]}_${dateParam || today()}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+  async function handleCSV() {
+    setExporting(true)
+    try {
+      await downloadExportCSV(period, dateParam)
+    } catch (err) {
+      console.error('CSV export hatası:', err)
+    } finally {
+      setExporting(false)
+    }
   }
 
-  function handlePDF() {
-    window.print()
+  async function handlePDF() {
+    setExporting(true)
+    try {
+      await downloadExportPDF(period, dateParam)
+    } catch (err) {
+      console.error('PDF export hatası:', err)
+    } finally {
+      setExporting(false)
+    }
   }
 
   function handleSelectSaved(r) {
@@ -276,17 +281,18 @@ export default function Reports({ theme = 'dark' }) {
           <button
             className="rp-export-btn"
             onClick={handleCSV}
-            disabled={chartData.length === 0}
-            title="CSV olarak indir"
+            disabled={exporting}
+            title="Olay verilerini CSV olarak indir"
           >
-            CSV
+            {exporting ? '…' : 'CSV'}
           </button>
           <button
             className="rp-export-btn"
             onClick={handlePDF}
-            title="PDF olarak kaydet"
+            disabled={exporting}
+            title="Formatli PDF raporu indir"
           >
-            PDF
+            {exporting ? '…' : 'PDF'}
           </button>
         </div>
       </div>

@@ -117,3 +117,31 @@ export function fetchSavedReport(id) {
 export function markFalsePositive(eventId) {
   return _patch(`/api/events/${eventId}/false-positive`, {})
 }
+
+async function _download(path) {
+  const res = await fetch(BASE + path)
+  if (!res.ok) throw new Error(`${res.status}`)
+  const blob = await res.blob()
+  const cd  = res.headers.get('Content-Disposition') || ''
+  const filename = cd.match(/filename="?([^"]+)"?/)?.[1] || 'export'
+  const url = URL.createObjectURL(blob)
+  const a   = document.createElement('a')
+  a.href    = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+export function downloadExportCSV(period, date) {
+  const params = new URLSearchParams({ period })
+  if (date) params.set('date', date)
+  return _download(`/api/reports/export/csv?${params}`)
+}
+
+export function downloadExportPDF(period, date) {
+  const params = new URLSearchParams({ period })
+  if (date) params.set('date', date)
+  return _download(`/api/reports/export/pdf?${params}`)
+}
