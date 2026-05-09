@@ -11,12 +11,6 @@ const VIOLATION_TYPES = [
   { value: 'mask',   label: 'Maske'        },
   { value: 'fire',   label: 'Yangın'       },
 ]
-const STATUSES = [
-  { value: '',        label: 'Tüm durumlar' },
-  { value: 'new',     label: 'Yeni'         },
-  { value: 'active',  label: 'Aktif'        },
-  { value: 'closed',  label: 'Kapalı'       },
-]
 
 export default function AlertHistory({ initialSelectedId, onEventSelect, socket }) {
   const [events, setEvents]           = useState([])
@@ -26,7 +20,7 @@ export default function AlertHistory({ initialSelectedId, onEventSelect, socket 
   const [listLoading, setListLoading] = useState(true)
   const [detailLoading, setDetailLoading] = useState(false)
 
-  const [filters, setFilters]   = useState({ date: '', violation_type: '', status: '' })
+  const [filters, setFilters]   = useState({ date: '', violation_type: '', status: 'closed' })
   const [viewedIds, setViewedIds] = useState(() => new Set())
 
   const loadEvents = useCallback((f = filters) => {
@@ -87,10 +81,10 @@ export default function AlertHistory({ initialSelectedId, onEventSelect, socket 
   }
 
   function clearFilters() {
-    setFilters({ date: '', violation_type: '', status: '' })
+    setFilters({ date: '', violation_type: '', status: 'closed' })
   }
 
-  const hasFilters = filters.date || filters.violation_type || filters.status
+  const hasFilters = filters.date || filters.violation_type
 
   return (
     <div className="alert-history">
@@ -109,15 +103,6 @@ export default function AlertHistory({ initialSelectedId, onEventSelect, socket 
           >
             {VIOLATION_TYPES.map(t => (
               <option key={t.value} value={t.value}>{t.label}</option>
-            ))}
-          </select>
-          <select
-            className="ah-filter-input"
-            value={filters.status}
-            onChange={e => handleFilterChange('status', e.target.value)}
-          >
-            {STATUSES.map(s => (
-              <option key={s.value} value={s.value}>{s.label}</option>
             ))}
           </select>
           {hasFilters && (

@@ -14,8 +14,8 @@ function formatDateTime(iso) {
 
 export default function TimelineStep({ step }) {
   const {
-    event_id, event_status, timestamp, repeat_count,
-    duration_sec, change_reason, signature, image_filename,
+    event_id, event_status, timestamp,
+    change_reason, signature, image_filename,
   } = step
 
   const sig = signature || {}
@@ -33,12 +33,7 @@ export default function TimelineStep({ step }) {
 
         <div className="tl-step__header">
           <span className="tl-step__time">{formatDateTime(timestamp)}</span>
-          <span className="tl-step__meta">Tekrar: {repeat_count} | Süre: {duration_sec?.toFixed(1)}s</span>
         </div>
-
-        {change_reason && change_reason !== 'initial_violation' && (
-          <div className="tl-step__reason">Değişiklik: {change_reason}</div>
-        )}
 
         <SignatureSummary signature={signature} />
 

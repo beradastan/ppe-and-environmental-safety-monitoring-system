@@ -174,7 +174,7 @@ export default function CameraSetup() {
 
           {/* Detection mode card */}
           <div className="cs-card">
-            <div className="cs-card__label">Detection Modu</div>
+            <div className="cs-card__label">Tespit Modu</div>
             <div className="cs-tabs">
               <button
                 className={`cs-tab ${detMode === 'crop' ? 'cs-tab--active' : ''}`}
@@ -265,7 +265,7 @@ export default function CameraSetup() {
               <li>Kamera ID ve Bölge bilgileri isteğe bağlıdır; girilirse ihlal raporlarında konum analizi yapılabilir.</li>
               <li>Kamera indeksi: 0 genellikle dahili, 1+ harici USB kameralardır.</li>
               <li>Video modu: <code>.mp4</code>, <code>.avi</code>, <code>.mov</code>, <code>.mkv</code> formatları desteklenir.</li>
-              <li>Pipeline başlatıldığında ayrı bir OpenCV penceresi açılır.</li>
+              <li>Sistem başlatıldığında ayrı bir OpenCV penceresi açılır.</li>
             </ul>
           </div>
 
@@ -273,7 +273,7 @@ export default function CameraSetup() {
             <div className="cs-card__label">Sistem Durumu</div>
             <div className="cs-status-rows">
               <div className="cs-status-row">
-                <span className="cs-status-key">Pipeline</span>
+                <span className="cs-status-key">Sistem</span>
                 <span className={`cs-status-val ${running ? 'cs-status-val--on' : 'cs-status-val--off'}`}>
                   {running ? 'Çalışıyor' : 'Durdu'}
                 </span>
@@ -298,7 +298,7 @@ export default function CameraSetup() {
                   )}
                   {status.mode && (
                     <div className="cs-status-row">
-                      <span className="cs-status-key">Detection</span>
+                      <span className="cs-status-key">Tespit</span>
                       <span className="cs-status-val">
                         {status.mode === 'crop' ? 'Crop-Based' : 'Scene-Based'}
                       </span>

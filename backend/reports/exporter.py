@@ -116,7 +116,7 @@ def generate_pdf(events: list[dict], period: str, start: str, end: str) -> bytes
     story = []
 
     # ── Başlık ──────────────────────────────────────────────
-    story.append(Paragraph('SafetyMonitor', title_s))
+    story.append(Paragraph('Güvenlik Monitörü', title_s))
     story.append(Paragraph(
         f'{PERIOD_LABELS.get(period, period)} Guvenlik Raporu  |  {start}  -  {end}',
         subtitle_s,

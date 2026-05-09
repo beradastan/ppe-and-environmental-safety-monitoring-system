@@ -182,7 +182,7 @@ camera_status     → kamera durumu {status: online|offline|frozen|dark, camera_
 ## Yangın Filtresi (her iki modda aynı)
 - `fire_min_area_ratio`: yangın alanı / frame alanı bu oranın altındaysa görmezden gelinir
 - `fire_growth_factor` + `fire_growth_window`: yangın büyümüyorsa bastırılır
-- Smoke (duman) filtrelenmez
+- Smoke (duman) aynı `fire_min_area_ratio` ve `fire_growth_factor` filtrelerinden geçer (`_smoke_area_history` ayrı tutulur)
 - Fire inference her 5 frame'de bir çalışır (`FIRE_INFER_EVERY = 5`)
 
 ## LLM Entegrasyonu
@@ -218,15 +218,28 @@ camera_status     → kamera durumu {status: online|offline|frozen|dark, camera_
 `database`, `backend`, `detection`, `ppe_pipeline`, `models` (crop/scene alt bölümleri dahil), `event_manager`, `llm`, `results_keep_events`
 
 ## Kesinleşmiş Pipeline Parametreleri (benchmark ile doğrulandı)
+
+### Crop Modu (benchmark_skip / benchmark_conf / benchmark_temporal)
 | Parametre | Değer | Kaynak |
 |-----------|-------|--------|
 | `PPE_INFER_EVERY` | 4 | benchmark_skip.py — skip=4: 29.4 FPS (+133% vs skip=1), doğruluk kaybı yok |
-| `temporal_window` | 20 | benchmark_temporal.py — window=20 elbow; üstünde V-viol monoton düşüyor |
-| `helmet_conf` | 0.20 | benchmark_conf.py — 0.15+ plato, 0.20 seçildi |
-| `vest_conf` | 0.30 | benchmark_conf.py — 0.30'da violation_rate artar, known_rate kaybı kabul edilebilir |
-| `mask_conf` | 0.25 | benchmark_conf.py — tüm değerlerde viol=%100, 0.25 gürültü filtresi için optimal |
+| `TEMPORAL_WIN` (crop) | 20 | benchmark_temporal.py — window=20 elbow; üstünde V-viol monoton düşüyor |
+| `CROP_HELMET_CONF` | 0.20 | benchmark_conf.py — 0.15+ plato, 0.20 seçildi |
+| `CROP_VEST_CONF` | 0.30 | benchmark_conf.py — 0.30'da violation_rate artar, known_rate kaybı kabul edilebilir |
+| `CROP_MASK_CONF` | 0.25 | benchmark_conf.py — tüm değerlerde viol=%100, 0.25 gürültü filtresi için optimal |
+
+### Scene Modu (benchmark_scene_frac / benchmark_scene_conf / benchmark_scene_temporal)
+| Parametre | Değer | Kaynak |
+|-----------|-------|--------|
+| `INSIDE_FRAC_THR` | 0.20 | benchmark_scene_frac.py — 0.10-0.50 arası helmet/mask sabit; vest için 0.20 optimal denge |
+| `SCENE_TEMPORAL_WIN` | 30 | benchmark_scene_temporal.py — w=30 elbow; helmet/mask known_rate belirgin artış, vest_viol kaybı minimal |
+| `SCENE_PPE_INFER_EVERY` | 2 | benchmark_scene_conf.py (skip=2 run) — her 2 frame'de bir PPE → ~25-30fps; doğruluk kaybı yok |
+| `SCENE_HELMET_CONF` | 0.25 | benchmark_scene_conf.py — violation_rate/known_rate dengesi en iyi |
+| `SCENE_VEST_CONF` | 0.30 | benchmark_scene_conf.py skip=2 — 0.20'de fps 12fps'e düşüyor; 0.30'da 22fps, viol% farkı yok |
+| `SCENE_MASK_CONF` | 0.05 | benchmark_scene_conf.py skip=2 — known_rate 90.8% (0.10'da 84.3%), fps skip=2 ile etkilenmiyor |
 
 `PPE_INFER_EVERY` config.yaml'da yok — `run_live_video.py` içinde hardcoded sabit olarak tanımlı.
+`SCENE_TEMPORAL_WIN` crop'tan bağımsız; `run()` içinde mode'a göre seçilir.
 
 ## Mezuniyet Tezi — TEZ_TASLAK.md
 Tez taslağı bu repo kökünde `TEZ_TASLAK.md` dosyasında tutulmaktadır (~1811 satır, Mayıs 2026).
@@ -261,4 +274,7 @@ EK-6  Kesinleşmiş Model Dosyaları
 - `benchmark_skip.py` — PPE_INFER_EVERY taraması (1,2,3,4,6,8), 250 frame, 11 video
 - `benchmark_conf.py` — helmet/vest/mask conf bağımsız taraması, 200 frame, 4 video
 - `benchmark_temporal.py` — temporal_window taraması [5,10,15,20,30,40,50], 300 frame, 4 video
-- Sonuçlar: `runs/benchmarks/{skip,conf,temporal}/` altında CSV olarak kaydedildi
+- `benchmark_scene_frac.py` — scene INSIDE_FRAC_THR taraması [0.10–0.60], 200 frame, 4 video
+- `benchmark_scene_conf.py` — scene helmet/vest/mask conf taraması, 200 frame, 4 video
+- `benchmark_scene_temporal.py` — scene temporal_window taraması [5–50], 300 frame, 4 video
+- Sonuçlar: `runs/benchmarks/{skip,conf,temporal,scene_frac,scene_conf,scene_temporal}/` altında CSV

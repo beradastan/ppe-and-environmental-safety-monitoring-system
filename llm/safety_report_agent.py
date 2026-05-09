@@ -62,6 +62,11 @@ class SafetyReportAgent:
         top_violation = max(violation_counts, key=violation_counts.get) if violation_counts else None
         has_comparison = comparison.get("trend") not in (None, "no_data")
 
+        duration = summary_json.get("duration_summary", {})
+        repeat   = summary_json.get("repeat_summary", {})
+        multi    = summary_json.get("multi_violation_event_count", 0)
+        most_active = summary_json.get("most_active_day") or summary_json.get("most_active_week")
+
         context_lines = []
         if top_violation:
             context_lines.append(f"- En yüksek ihlal türü: {top_violation} ({violation_counts[top_violation]} olay)")
@@ -75,16 +80,50 @@ class SafetyReportAgent:
         context_lines.append(
             f"- Risk: {risk.get('risk_level')} (normalize skor: {risk.get('normalized_score')}/100)"
         )
+        if duration.get("average_duration_sec"):
+            context_lines.append(
+                f"- Ortalama olay süresi: {round(duration['average_duration_sec'])} sn "
+                f"(maks: {round(duration['max_duration_sec'])} sn)"
+            )
+        if repeat.get("total_repeat_count"):
+            context_lines.append(
+                f"- Tekrar eden ihlal sayısı: {repeat['total_repeat_count']} "
+                f"(olay başına ort: {repeat['average_repeat_count']})"
+            )
+        if multi:
+            context_lines.append(f"- Çoklu ihlal içeren olay sayısı: {multi}")
+        if most_active:
+            label = most_active.get("date") or most_active.get("week", "")
+            context_lines.append(f"- En yoğun gün/hafta: {label} ({most_active.get('event_count', '?')} olay)")
 
         context_block = "\n".join(context_lines)
 
         sections = (
-            "**Genel Değerlendirme** — dönem özeti, risk skoru ve normalize değeri, toplam olay sayısı\n"
-            "**Kritik Bulgular** — en yüksek ihlal türü ve sayısı; en kritik bölge/kamera ve olay yoğunluğu"
+            "**Dönem Özeti** — risk skoru ve seviyesi, normalize değeri, toplam olay sayısı; "
+            "varsa önceki döneme kıyasla %değişim ve bu değişimin sahada ne anlama geldiği; "
+            "dönemin genel güvenlik tablosunu kapsamlı biçimde değerlendir; en az 4 cümle\n"
+            "**İhlal Analizi** — her ihlal türü sayı ve yüzdesiyle ayrı ayrı ele alınmalı; "
+            "dönemin birincil sorunu net biçimde vurgulanmalı; ihlaller arasındaki oran farkları yorumlanmalı; "
+            "yangın/duman varsa ciddiyeti ve diğer ihlallerden farkı ayrıca belirtilmeli; en az 4 cümle\n"
+            "**Lokasyon Analizi** — en kritik bölge/kamera adı ve olay sayısı; "
+            "yoğunlaşmanın yapısal mı rastlantısal mı olduğu gerekçesiyle açıklanmalı; "
+            "diğer bölgelerle karşılaştırma yapılmalı; en az 4 cümle\n"
+            "**Olay Karakteristikleri** — ortalama ve maksimum olay süresi yorumlanmalı "
+            "(uzun süreli olaylar denetim gecikmesine işaret eder); "
+            "tekrar eden ihlaller ve çoklu ihlal içeren olaylar değerlendirilmeli; "
+            "varsa en yoğun gün/saat dilimi analiz edilmeli; en az 4 cümle\n"
         )
         if has_comparison:
-            sections += "\n**Trend Analizi** — önceki döneme göre değişim yüzdesi, artış/azalış nedenleri"
-        sections += "\n**Eylem Önerileri** — yalnızca veriden çıkan bulgulara dayalı, kamera/bölge adı belirterek, en fazla 3 madde"
+            sections += (
+                "**Trend Değerlendirmesi** — önceki döneme geçişin ayrıntılı analizi; "
+                "artışın/azalışın hangi ihlal türünden ve hangi bölgeden kaynaklandığı; "
+                "mevcut hız devam ederse önümüzdeki dönem için sayısal projeksiyon; en az 4 cümle\n"
+            )
+        sections += (
+            "**Genel Değerlendirme** — dönemin tüm boyutlarını bir arada yorumlayan kapanış paragrafı; "
+            "risk seviyesinin sürdürülebilirliği, öne çıkan örüntüler ve sistemin genel durumu ele alınmalı; "
+            "öneri vermeden analitik bir sonuç yaz; en az 4 cümle"
+        )
 
         return (
             "/think\n"
@@ -99,9 +138,10 @@ class SafetyReportAgent:
             f"{sections}\n"
             "\n"
             "Kurallar:\n"
+            "- Rapor uzun ve ayrıntılı olmalı; her bölüm kendi içinde tam ve kapsamlı biçimde yazılmalı.\n"
             "- Her iddianda veriden bir sayı veya lokasyon adı referans ver.\n"
             "- 'İhlaller artmış' gibi genel ifade kullanma; 'baret ihlali 17'den 27'ye çıkmış (+59%)' gibi spesifik ol.\n"
-            "- Öneri bölümünde kamera/bölge adını mutlaka belirt.\n"
+            "- Öneri verme; sadece analiz ve değerlendirme yap.\n"
             "- Uydurma, sadece aşağıdaki JSON'daki sayıları kullan.\n"
             "- Resmi Türkçe, paragraf başlıkları bold.\n"
             "\n"

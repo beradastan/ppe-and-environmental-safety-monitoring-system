@@ -2,22 +2,9 @@ import { useEffect, useState } from 'react'
 import { fetchConfig, updateConfig } from '../api.js'
 import './Settings.css'
 
-const CONF_FIELDS = [
-  { key: 'helmet_conf',  label: 'Baret Eşiği',   min: 0.05, max: 0.95, step: 0.05 },
-  { key: 'vest_conf',    label: 'Yelek Eşiği',   min: 0.05, max: 0.95, step: 0.05 },
-  { key: 'mask_conf',    label: 'Maske Eşiği',   min: 0.05, max: 0.95, step: 0.05 },
-  { key: 'fire_conf',    label: 'Yangın Eşiği',  min: 0.05, max: 0.95, step: 0.05 },
-  { key: 'person_conf',  label: 'Kişi Eşiği',    min: 0.05, max: 0.95, step: 0.05 },
-]
-
-const INT_FIELDS = [
-  { key: 'temporal_window',    label: 'Temporal Pencere (frame)', min: 3,  max: 30, step: 1 },
-]
-
 const FIRE_FILTER_FIELDS = [
-  { key: 'fire_min_area_ratio', label: 'Min. Alan Oranı (frame %)', min: 0.001, max: 0.10,  step: 0.001 },
-  { key: 'fire_growth_factor',  label: 'Büyüme Faktörü',            min: 1.1,   max: 3.0,   step: 0.1   },
-  { key: 'fire_growth_window',  label: 'Büyüme Penceresi (adım)',   min: 3,     max: 30,    step: 1     },
+  { key: 'fire_min_area_ratio', label: 'Min. Alan Oranı (kare %)', min: 0.001, max: 0.10, step: 0.001 },
+  { key: 'fire_growth_factor',  label: 'Büyüme Faktörü',            min: 1.1,   max: 3.0,  step: 0.1   },
 ]
 
 const TIME_FIELDS = [
@@ -28,7 +15,7 @@ const TOGGLE_FIELDS = [
   { key: 'use_helmet', label: 'Baret Tespiti'  },
   { key: 'use_vest',   label: 'Yelek Tespiti'  },
   { key: 'use_mask',   label: 'Maske Tespiti'  },
-  { key: 'use_fire',   label: 'Yangın Tespiti' },
+  { key: 'use_fire',   label: 'Yangın + Duman Tespiti' },
 ]
 
 export default function Settings() {
@@ -63,14 +50,14 @@ export default function Settings() {
   }
 
   if (loading) return <div className="settings-loading">Yükleniyor…</div>
-  if (!cfg)    return <div className="settings-loading">Config alınamadı.</div>
+  if (!cfg)    return <div className="settings-loading">Yapılandırma alınamadı.</div>
 
   return (
     <div className="settings-page">
       <form className="settings-form" onSubmit={handleSave}>
 
         <div className="settings-note">
-          Değişiklikler kaydedilir; pipeline yeniden başlatıldığında aktif olur.
+          Değişiklikler kaydedilir; sistem yeniden başlatıldığında aktif olur.
         </div>
 
         <section className="settings-section">
@@ -90,18 +77,6 @@ export default function Settings() {
         </section>
 
         <section className="settings-section">
-          <h3 className="settings-section__title">Tespit Eşikleri (Confidence)</h3>
-          {CONF_FIELDS.map(f => (
-            <SliderRow
-              key={f.key}
-              field={f}
-              value={cfg[f.key]}
-              onChange={v => handleChange(f.key, v)}
-            />
-          ))}
-        </section>
-
-        <section className="settings-section">
           <h3 className="settings-section__title">Zamanlama</h3>
           {TIME_FIELDS.map(f => (
             <SliderRow
@@ -111,20 +86,12 @@ export default function Settings() {
               onChange={v => handleChange(f.key, v)}
             />
           ))}
-          {INT_FIELDS.map(f => (
-            <SliderRow
-              key={f.key}
-              field={f}
-              value={cfg[f.key]}
-              onChange={v => handleChange(f.key, v)}
-            />
-          ))}
         </section>
 
         <section className="settings-section">
-          <h3 className="settings-section__title">Yangın Filtresi</h3>
+          <h3 className="settings-section__title">Yangın + Duman Filtresi</h3>
           <p className="settings-section__hint">
-            Alan oranı: frame'in en az bu yüzdesi kadar büyük alev → alarm.<br/>
+            Alan oranı: karenin en az bu yüzdesi kadar büyük alev → alarm.<br/>
             Büyüme faktörü: son yarı / ilk yarı &gt; bu değer ise büyüyen alev → alarm.
           </p>
           {FIRE_FILTER_FIELDS.map(f => (

@@ -50,7 +50,14 @@ const TREND_META = {
   no_data:    { icon: '–', color: '#7a8aa0', label: 'Veri yok' },
 }
 
-function today() { return new Date().toISOString().slice(0, 10) }
+function localDateStr(d) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function today() { return localDateStr(new Date()) }
 
 function currentWeekStr() {
   const d = new Date()
@@ -68,7 +75,7 @@ function weekStrToMonday(ws) {
   const jan4Day = (jan4.getDay() + 6) % 7
   const mon = new Date(jan4)
   mon.setDate(4 - jan4Day + (week - 1) * 7)
-  return mon.toISOString().slice(0, 10)
+  return localDateStr(mon)
 }
 
 function formatSavedDate(period, report_date) {
@@ -120,7 +127,7 @@ export default function Reports({ theme = 'dark' }) {
       .finally(() => setSavedLoading(false))
   }, [period])
 
-  useEffect(() => { loadSaved(period); setSelectedSaved(null) }, [period])
+  useEffect(() => { setSavedReports([]); loadSaved(period); setSelectedSaved(null) }, [period])
 
   useEffect(() => {
     setChartLoading(true)
@@ -141,10 +148,22 @@ export default function Reports({ theme = 'dark' }) {
       .finally(() => setSummaryLoading(false))
   }, [period, dailyDate, weekStr, monthStr])
 
+  // Seçili dönem için kayıtlı rapor varsa otomatik yükle
+  useEffect(() => {
+    if (!savedReports.length) return
+    const match = savedReports.find(r => r.period === period && r.report_date === dateParam)
+    if (match) {
+      fetchSavedReport(match.id).then(d => setLlmText(d.llm_text || ''))
+    } else {
+      setLlmText('')
+    }
+  }, [dateParam, period, savedReports])
+
   // Socket.IO — LLM tamamlandığında
   useEffect(() => {
     function onReady({ period: p, date: d, llm_text, auto_generated }) {
-      loadSaved(p)
+      if (p === period) loadSaved(p)
+      setSelectedSaved(prev => prev ? { ...prev, text: llm_text || '' } : prev)
       if (auto_generated) return  // otomatik rapor: sadece listeyi yenile
       const pending = pendingRef.current
       if (!pending) return
@@ -448,7 +467,7 @@ export default function Reports({ theme = 'dark' }) {
       {/* ── LLM Raporu ── */}
       <div className="rp-llm-panel">
         <div className="rp-llm-header">
-          <span className="rp-section-title">AI Güvenlik Raporu</span>
+          <span className="rp-section-title">YZ Güvenlik Raporu</span>
           <button
             className="rp-llm-btn no-print"
             onClick={handleGenerateLLM}

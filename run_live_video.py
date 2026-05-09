@@ -141,10 +141,10 @@ CROP_HELMET_CONF = 0.15
 CROP_VEST_CONF   = 0.35
 CROP_MASK_CONF   = 0.10
 
-# Confidence eşikleri — scene modu
-SCENE_HELMET_CONF = 0.20
+# Confidence eşikleri — scene modu (benchmark_scene_conf.py + skip=2 ile optimize edildi)
+SCENE_HELMET_CONF = 0.25
 SCENE_VEST_CONF   = 0.30
-SCENE_MASK_CONF   = 0.25
+SCENE_MASK_CONF   = 0.05
 
 FIRE_CONF    = 0.75
 PERSON_CONF  = 0.25
@@ -167,8 +167,14 @@ MIN_HEAD_PX  = 30
 MIN_TORSO_PX = 50
 TELEMETRY    = False
 
-# Scene-specific
-INSIDE_FRAC_THR = 0.40
+# Scene-specific (benchmark_scene_frac.py + benchmark_scene_temporal.py ile optimize edildi)
+INSIDE_FRAC_THR      = 0.20
+SCENE_TEMPORAL_WIN   = 30
+SCENE_PPE_INFER_EVERY = 2   # PPE modellerini her 2 frame'de bir çalıştır → ~30fps
+
+# Çözünürlük sınırlama — yüksek çözünürlüklü kaynaklarda CPU/GPU transfer yükünü azaltır.
+# Frame bu genişliği aşarsa orantılı olarak küçültülür. None = devre dışı.
+PIPELINE_MAX_WIDTH = 1280
 
 HELMET_CLASSES = ["Hardhat", "NO-Hardhat"]
 VEST_CLASSES   = ["Safety Vest", "NO-Safety Vest"]
@@ -646,10 +652,12 @@ def run(args):
     _ppe_cfg  = _full_cfg.get("ppe_pipeline", {})
     _em_cfg   = _full_cfg.get("event_manager", {})
 
+    _use_fire           = bool( _ppe_cfg.get("use_fire",            True))
     _fire_min_area      = float(_ppe_cfg.get("fire_min_area_ratio", 0.01))
     _fire_growth_window = int(  _ppe_cfg.get("fire_growth_window",  10))
     _fire_growth_factor = float(_ppe_cfg.get("fire_growth_factor",  1.5))
-    _fire_area_history: deque = deque(maxlen=_fire_growth_window * 2)
+    _fire_area_history:  deque = deque(maxlen=_fire_growth_window * 2)
+    _smoke_area_history: deque = deque(maxlen=_fire_growth_window * 2)
 
     event_manager = PersonEventManager(
         new_confirm_sec      = float(_em_cfg.get("new_confirm_sec",      3.0)),
@@ -662,10 +670,11 @@ def run(args):
     )
     reattacher = TrackReattacher()
 
+    _temporal_win = SCENE_TEMPORAL_WIN if mode == "scene" else TEMPORAL_WIN
     states = defaultdict(lambda: {
-        "hardhat":     deque(maxlen=TEMPORAL_WIN),
-        "vest":        deque(maxlen=TEMPORAL_WIN),
-        "mask":        deque(maxlen=TEMPORAL_WIN),
+        "hardhat":     deque(maxlen=_temporal_win),
+        "vest":        deque(maxlen=_temporal_win),
+        "mask":        deque(maxlen=_temporal_win),
         "frame_count": 0,
     })
 
@@ -701,6 +710,7 @@ def run(args):
     _fire_conf_max    = 0.0
     _smoke_raw        = False
     _smoke_conf_max   = 0.0
+    _max_smoke_area   = 0.0
 
     _cam_freeze_frames = int(_ppe_cfg.get("cam_freeze_frames", 60))
     _cam_dark_frames   = int(_ppe_cfg.get("cam_dark_frames",   60))
@@ -722,6 +732,11 @@ def run(args):
                     _cam_status = "offline"
                 break
             frame_idx += 1
+
+            # --- Çözünürlük sınırlama ---
+            if PIPELINE_MAX_WIDTH and frame.shape[1] > PIPELINE_MAX_WIDTH:
+                scale = PIPELINE_MAX_WIDTH / frame.shape[1]
+                frame = cv2.resize(frame, (PIPELINE_MAX_WIDTH, int(frame.shape[0] * scale)))
 
             # --- Kamera donma / karartı ---
             _gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -991,9 +1006,16 @@ def run(args):
             # PPE Detection — SCENE modu
             # ════════════════════════════════════════════════════════════════
             elif mode == "scene" and boxes is not None and boxes.id is not None:
-                scene_helmet_dets = _scene_dets(helmet_model, frame, h_ids_set, SCENE_HELMET_CONF, device)
-                scene_vest_dets   = _scene_dets(vest_model,   frame, v_ids_set, SCENE_VEST_CONF,   device)
-                scene_mask_dets   = _scene_dets(mask_model,   frame, m_ids_set, SCENE_MASK_CONF,   device)
+                _do_scene_ppe = (frame_idx % SCENE_PPE_INFER_EVERY == 0)
+
+                if _do_scene_ppe:
+                    scene_helmet_dets = _scene_dets(helmet_model, frame, h_ids_set, SCENE_HELMET_CONF, device)
+                    scene_vest_dets   = _scene_dets(vest_model,   frame, v_ids_set, SCENE_VEST_CONF,   device)
+                    scene_mask_dets   = _scene_dets(mask_model,   frame, m_ids_set, SCENE_MASK_CONF,   device)
+                else:
+                    scene_helmet_dets = []
+                    scene_vest_dets   = []
+                    scene_mask_dets   = []
 
                 for box, tid in zip(boxes.xyxy, boxes.id):
                     track_id   = int(tid)
@@ -1003,17 +1025,20 @@ def run(args):
                     x1, y1, x2, y2 = map(int, box.tolist())
                     person_box = [x1, y1, x2, y2]
 
-                    hlabel, hconf, hbbox = _best_scene(scene_helmet_dets, person_box)
-                    states[stable_pid]["hardhat"].append(hlabel)
-                    hvote = vote(states[stable_pid]["hardhat"], min_known=3)
+                    if _do_scene_ppe:
+                        hlabel, hconf, hbbox = _best_scene(scene_helmet_dets, person_box)
+                        vlabel, vconf, vbbox = _best_scene(scene_vest_dets,   person_box)
+                        mlabel, mconf, mbbox = _best_scene(scene_mask_dets,   person_box)
+                        states[stable_pid]["hardhat"].append(hlabel)
+                        states[stable_pid]["vest"].append(vlabel)
+                        states[stable_pid]["mask"].append(mlabel)
+                    else:
+                        hconf = vconf = mconf = 0.0
+                        hbbox = vbbox = mbbox = None
 
-                    vlabel, vconf, vbbox = _best_scene(scene_vest_dets, person_box)
-                    states[stable_pid]["vest"].append(vlabel)
-                    vvote = vote(states[stable_pid]["vest"], min_known=2)
-
-                    mlabel, mconf, mbbox = _best_scene(scene_mask_dets, person_box)
-                    states[stable_pid]["mask"].append(mlabel)
-                    mvote = vote(states[stable_pid]["mask"], min_known=1)
+                    hvote = vote(states[stable_pid]["hardhat"], min_known=2)
+                    vvote = vote(states[stable_pid]["vest"],    min_known=2)
+                    mvote = vote(states[stable_pid]["mask"],    min_known=1)
 
                     color, viols = compliance_color(hvote, vvote, mvote)
                     persons_with_ppe.append({
@@ -1043,7 +1068,7 @@ def run(args):
                                      f"{vote_label[:8]}({conf:.2f})", c, tag)
 
             # --- Fire / smoke detection (throttled, her iki modda aynı) ---
-            if frame_idx % FIRE_INFER_EVERY == 0:
+            if _use_fire and frame_idx % FIRE_INFER_EVERY == 0:
                 fire_res = fire_model.predict(
                     frame, imgsz=IMGSZ, conf=FIRE_CONF, device=device, verbose=False,
                 )[0]
@@ -1053,6 +1078,7 @@ def run(args):
                 _smoke_conf_max = 0.0
                 _frame_area     = frame.shape[0] * frame.shape[1] or 1
                 _max_fire_area  = 0.0
+                _max_smoke_area = 0.0
 
                 if fire_res.boxes:
                     for box in fire_res.boxes:
@@ -1065,9 +1091,12 @@ def run(args):
                             _max_fire_area = max(_max_fire_area, area_ratio)
                             _fire_conf_max = max(_fire_conf_max, conf)
                         elif name == "smoke":
-                            _smoke_raw      = True
+                            x1, y1, x2, y2 = box.xyxy[0].tolist()
+                            area_ratio = ((x2 - x1) * (y2 - y1)) / _frame_area
+                            _max_smoke_area = max(_max_smoke_area, area_ratio)
                             _smoke_conf_max = max(_smoke_conf_max, conf)
 
+                # Fire filtresi: alan veya büyüme
                 _fire_area_history.append(_max_fire_area)
                 _is_large   = _max_fire_area >= _fire_min_area
                 _is_growing = False
@@ -1077,9 +1106,21 @@ def run(args):
                     older_avg = sum(hist[-_fire_growth_window:-half]) / half
                     newer_avg = sum(hist[-half:]) / half
                     _is_growing = older_avg > 0 and (newer_avg / older_avg) >= _fire_growth_factor
-
                 if _fire_conf_max > 0 and (_is_large or _is_growing):
                     _fire_raw = True
+
+                # Smoke filtresi: aynı alan ve büyüme kriterleri
+                _smoke_area_history.append(_max_smoke_area)
+                _smoke_is_large   = _max_smoke_area >= _fire_min_area
+                _smoke_is_growing = False
+                if _max_smoke_area > 0 and len(_smoke_area_history) >= _fire_growth_window:
+                    half      = _fire_growth_window // 2
+                    hist      = list(_smoke_area_history)
+                    older_avg = sum(hist[-_fire_growth_window:-half]) / half
+                    newer_avg = sum(hist[-half:]) / half
+                    _smoke_is_growing = older_avg > 0 and (newer_avg / older_avg) >= _fire_growth_factor
+                if _smoke_conf_max > 0 and (_smoke_is_large or _smoke_is_growing):
+                    _smoke_raw = True
 
             if _fire_raw or _smoke_raw:
                 label = "FIRE" if _fire_raw else "SMOKE"

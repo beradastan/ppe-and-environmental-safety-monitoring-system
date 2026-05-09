@@ -23,6 +23,7 @@ import re
 import subprocess as _subprocess
 import sys
 import tempfile as _tempfile
+import threading as _threading
 from pathlib import Path
 
 import yaml
@@ -325,8 +326,22 @@ def api_get_report_summary():
     return jsonify(summary)
 
 
+_LLM_LOCK = _threading.Lock()
+
+
 def _run_llm_and_save(period: str, date_str: str | None, auto_generated: bool = False) -> None:
     """LLM raporu üret, DB'ye kaydet, socket ile bildir."""
+    if not _LLM_LOCK.acquire(blocking=False):
+        logger.warning("LLM raporu zaten üretiliyor, istek atlandı (%s).", period)
+        socketio.emit("report_llm_error", {"period": period, "date": date_str or "", "error": "LLM meşgul, lütfen bekleyin."})
+        return
+    try:
+        _run_llm_and_save_inner(period, date_str, auto_generated)
+    finally:
+        _LLM_LOCK.release()
+
+
+def _run_llm_and_save_inner(period: str, date_str: str | None, auto_generated: bool = False) -> None:
     from backend.database.reader import get_events_for_summary
     from backend.database.writer import save_llm_report
     from backend.reports.services import EventAnalyticsService, ReportSummaryService
@@ -395,7 +410,6 @@ def _start_report_scheduler() -> None:
 
 @app.route("/api/reports/summary/llm", methods=["POST"])
 def api_generate_report_llm():
-    import threading as _threading
     period   = request.args.get("period", "weekly")
     date_str = request.args.get("date", "") or None
     if not _PERIOD_RE.match(period):
