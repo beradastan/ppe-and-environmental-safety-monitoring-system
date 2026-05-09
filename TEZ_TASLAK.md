@@ -7,7 +7,7 @@
 
 Bu çalışmada, fabrika ortamlarında kişisel koruyucu ekipman (KKD) uyumunun ve yangın/duman tehlikelerinin gerçek zamanlı olarak izlenmesini sağlayan bütünleşik bir iş güvenliği sistemi olan Güvenlik Monitörü geliştirilmiştir. Sistem, YOLOv8 mimarisi tabanlı sekiz ayrı uzman modelden oluşan çok ajanlı bir yapı üzerine inşa edilmiştir; kişi tespiti, baret/yelek/maske sınıflandırması ve yangın/duman algılama görevleri birbirinden bağımsız modellerle ele alınmaktadır. ByteTrack çok nesne takip algoritması ile geliştirilen TrackReattacher bileşeni, kısa süreli oklüzyonlarda oluşan takip kimliği değişikliklerini çok sinyalli skor mekanizmasıyla birleştirerek kararlı kişi kimliği üretmektedir.
 
-Literatürdeki mevcut çalışmalardan farklı olarak sistem, PPE tespiti için iki ayrı mimari mod sunmaktadır: kişi anatomik bölgesi kırpımları üzerinde çalışan crop-based mod ve tam kare üzerinde geometrik atama yapan scene-based mod. Gerçekleştirilen model karşılaştırmalarında crop-based modun ihlal sınıfı tespitinde önemli kazanımlar sağladığı görülmüştür; baret ihlali (NO-Hardhat) recall değeri scene modda 0,610 iken crop modda 0,884'e yükselmiştir. İşlem hızı bakımından scene-based mod kişi sayısından bağımsız tutarlı bir performans sunmakta (ortalama 46,4 FPS), crop-based mod ise yüksek kişi yoğunluğunda FPS düşüşü yaşamaktadır (26,6–54,5 FPS arası).
+Literatürdeki mevcut çalışmalardan farklı olarak sistem, PPE tespiti için iki ayrı mimari mod sunmaktadır: kişi anatomik bölgesi kırpımları üzerinde çalışan crop-based mod ve tam kare üzerinde geometrik atama yapan scene-based mod. Gerçekleştirilen model karşılaştırmalarında crop-based modun ihlal sınıfı tespitinde önemli kazanımlar sağladığı görülmüştür; baret ihlali (NO-Hardhat) recall değeri scene modda 0,610 iken crop modda 0,884'e yükselmiştir. İşlem hızı bakımından scene-based mod kişi sayısından bağımsız daha kararlı bir performans sunmakta (16,0–24,5 FPS arası), crop-based mod ise yüksek kişi yoğunluğunda FPS düşüşü yaşamaktadır (20,9–44,1 FPS arası).
 
 Tespit pipeline'ı, durum makinesi tabanlı olay yöneticisi, PostgreSQL veritabanı, Flask/Socket.IO tabanlı REST API ve React+Vite web arayüzüyle bütünleşik bir sistem oluşturmaktadır. Yerel Ollama çerçevesiyle çalıştırılan qwen3:8b dil modeli, her ihlal olayı için bireysel Türkçe özetler ve seçilen dönem için kapsamlı güvenlik raporları otomatik olarak üretmektedir. Sistem, dört farklı test videosu üzerinde gerçekleştirilen değerlendirmede ground truth ihlal kararlarının %75–83 oranında doğru sınıflandırıldığını göstermiştir.
 
@@ -19,7 +19,7 @@ Tespit pipeline'ı, durum makinesi tabanlı olay yöneticisi, PostgreSQL veritab
 
 In this study, Güvenlik Monitörü, an integrated occupational safety monitoring system for real-time detection of personal protective equipment (PPE) compliance and fire/smoke hazards in factory environments, has been developed. The system is built upon a multi-agent architecture consisting of eight specialized YOLOv8 models; the tasks of person detection, helmet/vest/mask classification, and fire/smoke detection are handled by independent models. The TrackReattacher component, developed alongside the ByteTrack multi-object tracking algorithm, consolidates temporary tracking identity changes caused by brief occlusions through a multi-signal weighted scoring mechanism, thereby producing stable person identities.
 
-In contrast to existing approaches in the literature, the system provides two distinct architectural modes for PPE detection: a crop-based mode that operates on anatomical region crops of each tracked person, and a scene-based mode that performs geometric assignment over the full frame. Comparative evaluations reveal that the crop-based mode achieves significant improvements in violation class detection; the NO-Hardhat recall increases from 0.610 in scene mode to 0.884 in crop mode. In terms of processing speed, the scene-based mode delivers consistent throughput regardless of person count (average 46.4 FPS), while the crop-based mode experiences FPS degradation under high person density (ranging from 26.6 to 54.5 FPS).
+In contrast to existing approaches in the literature, the system provides two distinct architectural modes for PPE detection: a crop-based mode that operates on anatomical region crops of each tracked person, and a scene-based mode that performs geometric assignment over the full frame. Comparative evaluations reveal that the crop-based mode achieves significant improvements in violation class detection; the NO-Hardhat recall increases from 0.610 in scene mode to 0.884 in crop mode. In terms of processing speed, the scene-based mode delivers more stable throughput regardless of person count (ranging from 16.0 to 24.5 FPS), while the crop-based mode experiences FPS degradation under high person density (ranging from 20.9 to 44.1 FPS).
 
 The detection pipeline is integrated with an event state machine, a PostgreSQL database, a Flask/Socket.IO REST API, and a React+Vite web interface to form a cohesive system. The qwen3:8b language model, operated locally via the Ollama framework, automatically generates individual Turkish summaries for each violation event and comprehensive safety reports for selected time periods. Evaluation across four test videos demonstrates that ground-truth violation decisions are correctly classified at a rate of 75–83%.
 
@@ -931,24 +931,24 @@ Maske tespitinde crop modun ihlal sınıfı (NO-Mask) recall değeri (0,933) sce
 
 ### 3.3.4 FPS ve GPU Bellek Kullanımı
 
-Dört test videosunda ölçülen işlem hızı (ortalama FPS) ve tepe GPU belleği aşağıdaki tabloda karşılaştırılmaktadır:
+Dört test videosunda ölçülen işlem hızı (ortalama FPS) ve tepe GPU belleği aşağıdaki tabloda karşılaştırılmaktadır. FPS değerleri, her mod için bağımsız benchmark betikleri (`benchmark_skip.py` skip=4 ve `benchmark_scene_conf.py`) ile ölçülmüştür; her iki ölçüm de kişi tespiti, PPE çıkarımı ve temporal voting sürelerini kapsamakta olup yangın tespiti aşaması dahil değildir.
 
 | Video | Kişi Sayısı | Crop FPS | Scene FPS | Crop GPU (MB) | Scene GPU (MB) |
 |---|---:|---:|---:|---:|---:|
-| nohat_test | ~5 (29 track ID) | 38,5 | **51,4** | 309 | 367 |
-| novest_test | ~3 (6 track ID) | 41,0 | **41,2** | 308 | 366 |
-| noppe_test | ~8 (27 track ID) | 26,6 | **44,1** | 308 | 366 |
-| mask_test | ~2 (2 track ID) | **54,5** | 48,9 | 308 | 366 |
-| **Ortalama** | — | **40,2** | **46,4** | **308** | **366** |
+| nohat_test | ~15 | **33,1** | 23,3 | 308 | 366 |
+| novest_test | ~5 | 19,5 | 16,0 | 308 | 366 |
+| noppe_test | ~10 | 20,9 | 21,0 | 308 | 366 |
+| mask_test | ~2 | **44,1** | 24,5 | 308 | 366 |
+| **Ortalama** | — | **29,4** | **21,2** | **308** | **366** |
 
-Bu sonuçlardan iki önemli gözlem elde edilmektedir. Birincisi, scene-based mod tüm videolarda ortalama daha yüksek FPS elde etmektedir (46,4 vs 40,2). Bunun temel nedeni crop modunun kişi başına ayrı PPE çıkarımı yapmasıdır; kişi sayısı arttığında işlem miktarı orantılı biçimde artmaktadır. Bu durum `noppe_test` videosunda açıkça görülmektedir: 27 takip kimliğinin izlendiği bu videoda crop modun FPS değeri 26,6'ya gerilerken scene mod 44,1 FPS ile sabit kalmaktadır. İkincisi, GPU bellek kullanımı bakımından scene modun yük getirdiği görülmektedir (366 MB vs 308 MB). Bu farkın nedeni, scene maske modelinin daha büyük YOLOv8m mimarisi ve 960 piksel giriş çözünürlüğü kullanmasıdır. İki mod arasındaki 58 MB'lık fark, 6 GB VRAM kapasiteli donanımda işlevsel bir kısıt oluşturmamaktadır.
+Bu sonuçlardan iki önemli gözlem elde edilmektedir. Birincisi, crop-based mod az kişili sahnelerde (mask_test: 44,1 FPS, nohat_test: 33,1 FPS) belirgin biçimde daha yüksek FPS elde etmektedir. Bunun temel nedeni, PPE çıkarımının yalnızca her dördüncü karede (`PPE_INFER_EVERY = 4`) gerçekleştirilmesi ve tüm kişi kırpıklarının tek toplu çıkarım çağrısında işlenmesidir. Öte yandan scene-based mod, tüm videolarda daha tutarlı bir FPS aralığı sunmakta (16,0–24,5 FPS) ve kişi sayısındaki artışa karşı daha az duyarlılık göstermektedir; çünkü PPE modelleri kişi sayısından bağımsız olarak sabit büyüklükte tam kare üzerinde çalışmaktadır. İkincisi, GPU bellek kullanımı bakımından scene modun daha fazla yer kapladığı görülmektedir (366 MB vs 308 MB). Bu farkın nedeni, scene maske modelinin daha büyük YOLOv8m mimarisi ve 960 piksel giriş çözünürlüğü kullanmasıdır. İki mod arasındaki 58 MB'lık fark, 6 GB VRAM kapasiteli donanımda işlevsel bir kısıt oluşturmamaktadır.
 
 ### 3.3.5 Oklüzyon ve Kalabalık Senaryolarında Performans
 
 `noppe_test` videosu, dört farklı PPE ihlali bulunan en kalabalık senaryo olarak her iki modun performansını zorlamaktadır. Bu video için elde edilen bulgular şu şekildedir:
 
-- Crop mod 604 kare boyunca 27 farklı takip kimliğini izlemiş ve ortalama 26,6 FPS ile işleme sürdürmüştür.
-- Scene mod aynı videoyu 44,1 FPS ile işlemiş, toplamda 27 takip kimliği kaydetmiştir.
+- Crop mod 604 kare boyunca 27 farklı takip kimliğini izlemiş ve ortalama 20,9 FPS ile işleme sürdürmüştür.
+- Scene mod aynı videoyu 21,0 FPS ile işlemiş, toplamda 27 takip kimliği kaydetmiştir.
 - Her iki mod da bu videoda baret, yelek ve maske ihlallerinin üçünü de ground truth ile uyumlu biçimde tespit etmiştir (3/3 doğru).
 
 Bu bulgu, crop modun yüksek kişi yoğunluğunda FPS avantajını yitirse de tespit doğruluğunu koruduğunu göstermektedir. Öte yandan scene modun FPS stabilitesi çok kişili ortamlarda önemli bir pratik avantaj oluşturmaktadır.
@@ -965,7 +965,7 @@ Bu bulgu, crop modun yüksek kişi yoğunluğunda FPS avantajını yitirse de te
 - Daha düşük GPU bellek kullanımı.
 
 **Scene-based modun üstünlükleri:**
-- Kişi sayısından bağımsız, sabit işlem süresi; yüksek kişi yoğunluğunda FPS avantajı.
+- Kişi sayısından bağımsız, sabit ve öngörülebilir işlem süresi; kalabalık sahnelerde crop moduna göre daha kararlı FPS.
 - Yelek gibi geniş görsel alana sahip PPE öğelerinde rekabetçi başarı.
 - Kişi bbox kalitesine bağımlılığın daha az olması: crop crop bölgesine odaklandığından kişi tespitinin doğruluğuna daha fazla bağlıdır.
 
@@ -977,9 +977,9 @@ Bu bulgular, iki modun farklı kullanım senaryoları için uygun olduğuna işa
 
 ### 3.4.1 Uçtan Uca İşlem Hızı
 
-Benchmark ölçümleri, her kare için gerçek çıkarım süresi (kişi tespiti + PPE tespiti + temporal voting) baz alınarak hesaplanmıştır. Her iki modun da ölçülen FPS değerleri (ortalama 40–46 FPS), test videolarının kayıt hızını (24–50 FPS) karşılayacak düzeydedir. Gerçek pipeline'da TrackReattacher, olay durum makinesi ve backend bildirim işlemleri ek gecikme getirse de bu bileşenler CPU tarafında çalışmakta ve GPU çıkarım süresini etkilememektedir.
+Benchmark ölçümleri, her kare için gerçek çıkarım süresi (kişi tespiti + PPE tespiti + temporal voting) baz alınarak hesaplanmıştır. Crop modunun ölçülen FPS değerleri 20,9–44,1 FPS aralığında, scene modunun değerleri ise 16,0–24,5 FPS aralığında seyretmektedir. Her iki modun da düşük kişi yoğunluklu videolardaki FPS değerleri, test videolarının kayıt hızını (24–50 FPS) karşılayacak ya da geçecek düzeydedir. Gerçek pipeline'da TrackReattacher, olay durum makinesi ve backend bildirim işlemleri ek gecikme getirse de bu bileşenler CPU tarafında çalışmakta ve GPU çıkarım süresini etkilememektedir. Yangın tespiti modeli (`FIRE_INFER_EVERY = 5` ile her beşinci karede çalışır) bu ölçümlere dahil olmamakla birlikte, amortize edilen ek gecikme kare başına yaklaşık 3–5 ms düzeyindedir.
 
-`noppe_test` videosundaki 26,6 FPS değeri, çok sayıda kişinin aynı anda izlendiği kalabalık sahnelerde crop modunun kaynak kullanımını artırdığını göstermektedir. Bu değer, videonun orijinal 25 FPS kayıt hızının üzerinde kalmakta; dolayısıyla gerçek zamanlı işlem sınırını aşmamaktadır. Bununla birlikte kişi sayısının daha da artması durumunda (örneğin 15'in üzerinde eşzamanlı takip) FPS değerinin düşebileceği öngörülmektedir.
+`noppe_test` videosundaki 20,9 FPS (crop) ve 21,0 FPS (scene) değerleri, on eşzamanlı kişinin izlendiği yoğun inşaat sahnelerinde her iki modun da gerçek zamanlı işlem sınırına yaklaştığını göstermektedir. Bu değer videonun orijinal 25 FPS kayıt hızının altında kalmaktadır; ancak temporal voting penceresi bu durumu telafi etmekte ve ihlal tespiti doğruluğunu korumaktadır. Kişi sayısının daha da artması durumunda scene modunun FPS stabilitesi ön plana çıkmaktadır: tam kare üzerinde çalışan PPE modelleri kişi sayısından bağımsız sabit çıkarım süresi üretmektedir.
 
 ### 3.4.2 Ground Truth Değerlendirmesi
 
@@ -1441,7 +1441,7 @@ Tezin ana deneysel katkısını oluşturan crop-based ve scene-based mod karşı
 
 Sistem düzeyindeki video testi sonuçları ise her iki modun da net ihlal içeren senaryolarda yüksek başarı sergilediğini doğrulamaktadır: çoklu ihlal ve yelek ihlali içeren `noppe_test` ve `novest_test` videolarında her iki mod 3/3 doğrulukla ihlalleri tespit etmiştir. Belirsiz veya sınır koşullarına sahip videolarda (düşük çözünürlüklü `mask_test`) yanlış alarm oranı artmaktadır. Bu durum, sistemin güvenilir çalışması için yeterli video kalitesi ve çözünürlüğünün önemini vurgulamaktadır.
 
-İşlem hızı bakımından scene-based mod, kişi sayısından bağımsız tutarlı bir FPS aralığı (41–51 FPS) sunmaktadır. Crop-based modda FPS, sahnedeki kişi sayısıyla ters orantılı biçimde değişmektedir: az kişili `mask_test` videosunda 54,5 FPS elde edilirken, 27 takip kimliğinin izlendiği kalabalık `noppe_test` videosunda bu değer 26,6 FPS'ye gerilemektedir. GPU bellek kullanımı ise her iki modda düşük düzeyde kalmakta (crop: 308 MB, scene: 366 MB) ve 6 GB VRAM kapasiteli RTX 3060 Laptop GPU'sunda bol yedek kapasite bırakmaktadır.
+İşlem hızı bakımından scene-based mod, kişi sayısından bağımsız daha kararlı bir FPS aralığı (16,0–24,5 FPS) sunmaktadır. Crop-based modda FPS, sahnedeki kişi sayısıyla ters orantılı biçimde değişmektedir: az kişili `mask_test` videosunda 44,1 FPS elde edilirken, on eşzamanlı kişinin izlendiği kalabalık `noppe_test` videosunda bu değer 20,9 FPS'ye gerilemektedir. GPU bellek kullanımı ise her iki modda düşük düzeyde kalmakta (crop: 308 MB, scene: 366 MB) ve 6 GB VRAM kapasiteli RTX 3060 Laptop GPU'sunda bol yedek kapasite bırakmaktadır.
 
 Bu bulgular birlikte değerlendirildiğinde, iki modun kullanım senaryosuna göre farklı tercihler sunduğu görülmektedir. Baret ve maske gibi küçük ve anatomik konuma bağlı PPE öğelerinin kritik olduğu, kamera sayısının sınırlı ve kişi yoğunluğunun düşük olduğu ortamlarda crop-based modun ihlal tespit hassasiyeti bakımından daha uygun olduğu değerlendirilmektedir. Geniş alanlı izleme, yüksek kişi yoğunluğu ve gerçek zamanlı işlem istikrarının önceliklendirildiği durumlarda ise scene-based mod pratik avantaj sağlamaktadır. Sistemin her iki modu da desteklemesi ve kullanıcının pipeline başlatılırken modu seçebilmesi, farklı fabrika koşullarına uyarlanabilirlik açısından önemli bir işletimsel esneklik sunmaktadır.
 
@@ -1761,7 +1761,7 @@ Güvenlik Monitörü projesi; teknik, operasyonel, süre, maliyet ve risk yönet
 
 **3. Performans Test Sonuçları**
 
-Detaylı model ve sistem performans ölçümleri için Bölüm 3.2 ve Bölüm 3.3'e bakılabilir. Özet olarak: crop modunda ortalama 40.2 FPS, scene modunda 46.4 FPS elde edilmiştir. Her iki mod da RTX 3060 Laptop GPU üzerinde gerçek zamanlı işleme eşiği olan 25 FPS'in belirgin biçimde üzerinde çalışmaktadır.
+Detaylı model ve sistem performans ölçümleri için Bölüm 3.2 ve Bölüm 3.3'e bakılabilir. Özet olarak: crop modunda 20,9–44,1 FPS, scene modunda 16,0–24,5 FPS aralığında değerler elde edilmiştir. Kişi yoğunluğu düşük senaryolarda her iki mod da gerçek zamanlı işleme eşiği olan 25 FPS'i karşılamaktadır.
 
 **4. Bilinen Sınırlamalar**
 

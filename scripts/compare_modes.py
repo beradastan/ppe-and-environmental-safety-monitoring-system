@@ -35,6 +35,7 @@ _CROP_CFG  = _CFG.get("models", {}).get("crop", {})
 _SCENE_CFG = _CFG.get("models", {}).get("scene", {})
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+HALF   = (DEVICE == "cuda")
 
 PERSON_MODEL   = ROOT / _CFG["models"].get("person_model", "models/person_agent_scene_vinayakstyle_best.pt")
 CROP_HELMET    = ROOT / _CROP_CFG.get("helmet_model",  "models/bera/crophelmet_agent_final_best.pt")
@@ -116,6 +117,14 @@ def empty_counts():
     return {ppe: {"known": 0, "total": 0, "viol": 0} for ppe in ("helmet", "vest", "mask")}
 
 
+def _best_label(res, ids):
+    if not res.boxes:
+        return "unknown"
+    b   = max(res.boxes, key=lambda b: float(b.conf[0]))
+    cls = int(b.cls[0])
+    return res.names[cls] if cls in ids else "unknown"
+
+
 def run_crop(video_path, models, max_frames):
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
@@ -143,34 +152,50 @@ def run_crop(video_path, models, max_frames):
         frame = resize_frame(frame)
 
         p_res = pm.track(frame, classes=list(p_ids), tracker=TRACKER, persist=True,
-                         imgsz=IMGSZ, conf=PERSON_CONF, device=DEVICE, verbose=False)[0]
+                         imgsz=IMGSZ, conf=PERSON_CONF, device=DEVICE, half=HALF, verbose=False)[0]
         boxes = p_res.boxes
         if boxes is None or boxes.id is None:
             continue
 
         do_ppe = (fi % CROP_PPE_EVERY == 0) and fi > WARMUP_F
 
-        for box, tid in zip(boxes.xyxy, boxes.id):
-            tid = int(tid)
-            if do_ppe:
-                def best_crop(model, crop, ids, conf):
-                    if crop.size == 0:
-                        return "unknown"
-                    res = model.predict(crop, imgsz=IMGSZ, conf=conf, device=DEVICE, verbose=False)[0]
-                    if not res.boxes:
-                        return "unknown"
-                    b   = max(res.boxes, key=lambda b: float(b.conf[0]))
-                    cls = int(b.cls[0])
-                    return model.names[cls] if cls in ids else "unknown"
+        if do_ppe:
+            h_batch: list[tuple] = []
+            v_batch: list[tuple] = []
+            m_batch: list[tuple] = []
+            for box, tid in zip(boxes.xyxy, boxes.id):
+                tid = int(tid)
+                hc = crop_region(frame, box.tolist(), "head")
+                vc = crop_region(frame, box.tolist(), "torso")
+                mc = crop_region(frame, box.tolist(), "head")
+                if hc.size > 0: h_batch.append((tid, hc))
+                if vc.size > 0: v_batch.append((tid, vc))
+                if mc.size > 0: m_batch.append((tid, mc))
 
-                states[tid]["helmet"].append(best_crop(hm, crop_region(frame, box.tolist(), "head"),  h_ids, CROP_HELMET_CONF))
-                states[tid]["vest"].append(  best_crop(vm, crop_region(frame, box.tolist(), "torso"), v_ids, CROP_VEST_CONF))
-                states[tid]["mask"].append(  best_crop(mm, crop_region(frame, box.tolist(), "head"),  m_ids, CROP_MASK_CONF))
+            if h_batch:
+                h_res = hm.predict([b[1] for b in h_batch], imgsz=IMGSZ, conf=CROP_HELMET_CONF,
+                                   device=DEVICE, half=HALF, verbose=False)
+                for (tid, _), res in zip(h_batch, h_res):
+                    states[tid]["helmet"].append(_best_label(res, h_ids))
 
-            if fi == WARMUP_F + 1 and t0 is None:
-                t0 = time.perf_counter()
+            if v_batch:
+                v_res = vm.predict([b[1] for b in v_batch], imgsz=IMGSZ, conf=CROP_VEST_CONF,
+                                   device=DEVICE, half=HALF, verbose=False)
+                for (tid, _), res in zip(v_batch, v_res):
+                    states[tid]["vest"].append(_best_label(res, v_ids))
 
-            if fi > WARMUP_F:
+            if m_batch:
+                m_res = mm.predict([b[1] for b in m_batch], imgsz=IMGSZ, conf=CROP_MASK_CONF,
+                                   device=DEVICE, half=HALF, verbose=False)
+                for (tid, _), res in zip(m_batch, m_res):
+                    states[tid]["mask"].append(_best_label(res, m_ids))
+
+        if fi == WARMUP_F + 1 and t0 is None:
+            t0 = time.perf_counter()
+
+        if fi > WARMUP_F:
+            for _, tid in zip(boxes.xyxy, boxes.id):
+                tid = int(tid)
                 for ppe in ("helmet", "vest", "mask"):
                     v = vote(states[tid][ppe])
                     counts[ppe]["total"] += 1
@@ -213,7 +238,7 @@ def run_scene(video_path, models, max_frames):
         frame = resize_frame(frame)
 
         p_res = pm.track(frame, classes=list(p_ids), tracker=TRACKER, persist=True,
-                         imgsz=IMGSZ, conf=PERSON_CONF, device=DEVICE, verbose=False)[0]
+                         imgsz=IMGSZ, conf=PERSON_CONF, device=DEVICE, half=HALF, verbose=False)[0]
         boxes = p_res.boxes
         if boxes is None or boxes.id is None:
             continue
@@ -221,7 +246,7 @@ def run_scene(video_path, models, max_frames):
         do_ppe = (fi % SCENE_PPE_EVERY == 0)
         if do_ppe:
             def scene_dets(model, ids, conf):
-                res = model.predict(frame, imgsz=IMGSZ, conf=conf, device=DEVICE, verbose=False)[0]
+                res = model.predict(frame, imgsz=IMGSZ, conf=conf, device=DEVICE, half=HALF, verbose=False)[0]
                 if not res.boxes:
                     return []
                 return [(model.names[int(b.cls[0])], b.xyxy[0].tolist())

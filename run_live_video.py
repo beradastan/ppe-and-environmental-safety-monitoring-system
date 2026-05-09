@@ -119,6 +119,7 @@ def _load_model_cfg() -> dict:
 _MODEL_CFG = _load_model_cfg()
 _DEV_CFG = _MODEL_CFG.get("device", "auto")
 _DEVICE  = ("cuda" if _TORCH_CUDA else "cpu") if _DEV_CFG == "auto" else _DEV_CFG
+HALF     = (_DEVICE == "cuda")
 
 FIRE_MODEL_PATH   = _MODEL_CFG.get("fire_model",   "models/bera/fire_smoke_other_agent_final_best.pt")
 PERSON_MODEL_PATH = _MODEL_CFG.get("person_model", "models/person_agent_scene_vinayakstyle_best.pt")
@@ -475,7 +476,7 @@ def _scene_dets(
     min_conf: float,
     device: str,
 ) -> list[tuple[str, float, list]]:
-    res = model.predict(frame, imgsz=IMGSZ, conf=min_conf, device=device, verbose=False)[0]
+    res = model.predict(frame, imgsz=IMGSZ, conf=min_conf, device=device, half=HALF, verbose=False)[0]
     if not res.boxes:
         return []
     return [
@@ -777,7 +778,7 @@ def run(args):
 
             p_result = person_model.track(
                 frame, classes=p_ids, tracker=TRACKER, persist=True,
-                imgsz=IMGSZ, conf=PERSON_CONF, device=device, verbose=False,
+                imgsz=IMGSZ, conf=PERSON_CONF, device=device, half=HALF, verbose=False,
             )[0]
 
             persons_with_ppe: list[dict] = []
@@ -831,7 +832,7 @@ def run(args):
                 if h_batch:
                     h_results = helmet_model.predict(
                         [b[2] for b in h_batch], classes=h_ids, imgsz=IMGSZ,
-                        conf=CROP_HELMET_CONF, device=device, verbose=False,
+                        conf=CROP_HELMET_CONF, device=device, half=HALF, verbose=False,
                     )
                     for (stable_pid, track_id, hcrop, hox, hoy), hres in zip(h_batch, h_results):
                         hdets = _collect_dets(helmet_model, hres, h_ids, CROP_HELMET_CONF)
@@ -861,7 +862,7 @@ def run(args):
                 if v_batch:
                     v_results = vest_model.predict(
                         [b[2] for b in v_batch], classes=v_ids, imgsz=IMGSZ,
-                        conf=CROP_VEST_CONF, device=device, verbose=False,
+                        conf=CROP_VEST_CONF, device=device, half=HALF, verbose=False,
                     )
                     for (stable_pid, track_id, vcrop, vox, voy), vres in zip(v_batch, v_results):
                         vdets = _collect_dets(vest_model, vres, v_ids, CROP_VEST_CONF)
@@ -891,7 +892,7 @@ def run(args):
                 if m_batch:
                     m_results = mask_model.predict(
                         [b[2] for b in m_batch], classes=m_ids, imgsz=CROP_MASK_IMGSZ,
-                        conf=CROP_MASK_CONF, device=device, verbose=False,
+                        conf=CROP_MASK_CONF, device=device, half=HALF, verbose=False,
                     )
                     for (stable_pid, track_id, mcrop, mox, moy), mres in zip(m_batch, m_results):
                         mdets = _collect_dets(mask_model, mres, m_ids, CROP_MASK_CONF)
@@ -1070,7 +1071,7 @@ def run(args):
             # --- Fire / smoke detection (throttled, her iki modda aynı) ---
             if _use_fire and frame_idx % FIRE_INFER_EVERY == 0:
                 fire_res = fire_model.predict(
-                    frame, imgsz=IMGSZ, conf=FIRE_CONF, device=device, verbose=False,
+                    frame, imgsz=IMGSZ, conf=FIRE_CONF, device=device, half=HALF, verbose=False,
                 )[0]
                 _fire_raw       = False
                 _fire_conf_max  = 0.0

@@ -53,7 +53,7 @@ ppe_pipeline:
   fire_min_area_ratio: 0.027
   helmet_conf: 0.2
   mask_conf: 0.25
-  new_confirm_sec: 3
+  new_confirm_sec: 2.0
   person_conf: 0.25
   resolved_confirm_sec: 5
   temporal_window: 20
