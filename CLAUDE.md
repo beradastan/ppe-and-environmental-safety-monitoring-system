@@ -1,4 +1,4 @@
-# Factory Safety — CLAUDE.md (unified-detection branch)
+# Güvenlik Monitörü — CLAUDE.md (unified-detection branch)
 
 ## Proje Özeti
 Fabrika içi iş güvenliği izleme sistemi. YOLO + ByteTrack ile PPE (baret/yelek/maske) ve yangın tespiti yapıp ihlalleri kaydeder, raporlar ve web arayüzü üzerinden gösterir.
@@ -50,7 +50,7 @@ frame
  └─ person_model.track()         → kişi bbox + ByteTrack ID
      └─ TrackReattacher.update() → stable_pid
          └─ _scene_dets(helmet_model, frame) → tam kareye tespit
-         └─ _best_scene(dets, person_box)    → _inside_frac >= 0.40 olan en iyi eşleşme
+         └─ _best_scene(dets, person_box)    → _inside_frac >= 0.20 olan en iyi eşleşme
          └─ (vest ve mask için de aynı)
 ```
 
@@ -114,12 +114,21 @@ frontend/src/
     AlertHistory.jsx  — Event listesi + timeline (sol: sidebar, sağ: detay)
     Reports.jsx       — Periyodik raporlar + LLM raporu (async via Socket.IO)
     CameraSetup.jsx   — Kamera seçimi + detection modu seçimi + pipeline başlatma
-    Settings.jsx      — PPE konfig
+    Settings.jsx       — PPE konfig (confidence slider'ları kaldırıldı; yalnızca yangın filtresi, zaman ve toggle alanları)
   components/
     Navbar.jsx, Sidebar.jsx, EventCard.jsx, MainPanel.jsx
     TimelineStep.jsx, PipelineControl.jsx
   api.js              — Tüm API çağrıları
   socket.js           — Socket.IO istemcisi
+tests/
+  test_api.py              — Backend API + DB bağlantı testi (27 kontrol)
+  test_pipeline_crop.py    — Crop modu e2e testi; 3 video, tüm ihlaller tespit
+  test_pipeline_scene.py   — Scene modu e2e testi; 3 video, tüm ihlaller tespit
+  checklist_e2e.md         — Manuel UI test kontrol listesi
+scripts/
+  benchmark_skip.py, benchmark_conf.py, benchmark_temporal.py  — crop modu optimizasyon
+  benchmark_scene_frac.py, benchmark_scene_conf.py, benchmark_scene_temporal.py  — scene modu optimizasyon
+  compare_modes.py         — crop vs scene doğrudan karşılaştırma; FPS + known_rate + viol_rate
 ```
 
 ## Veritabanı Şeması (Ana Tablolar)
@@ -242,7 +251,7 @@ camera_status     → kamera durumu {status: online|offline|frozen|dark, camera_
 `SCENE_TEMPORAL_WIN` crop'tan bağımsız; `run()` içinde mode'a göre seçilir.
 
 ## Mezuniyet Tezi — TEZ_TASLAK.md
-Tez taslağı bu repo kökünde `TEZ_TASLAK.md` dosyasında tutulmaktadır (~1811 satır, Mayıs 2026).
+Tez taslağı bu repo kökünde `TEZ_TASLAK.md` dosyasında tutulmaktadır (~1978 satır, Mayıs 2026).
 
 **Tamamlanan bölümler:**
 ```
@@ -251,10 +260,14 @@ SİMGELER VE KISALTMALAR   (31 kısaltma, alfabetik)
 1. GİRİŞ
 2. YÖNTEM (2.1–2.8)
 3. BULGULAR (3.1–3.7)
-   3.4.4 PPE_INFER_EVERY optimizasyonu — benchmark_skip.py sonuçları
-   3.4.5 Conf eşiği optimizasyonu     — benchmark_conf.py sonuçları
-   3.4.6 temporal_window optimizasyonu — benchmark_temporal.py sonuçları
-   3.7   Literatür karşılaştırması     — Nath 2020, Wu 2019 vs SafetyMonitor
+   3.4.4  PPE_INFER_EVERY optimizasyonu    — benchmark_skip.py sonuçları
+   3.4.5  Conf eşiği optimizasyonu (crop)  — benchmark_conf.py sonuçları
+   3.4.6  temporal_window optimizasyonu    — benchmark_temporal.py sonuçları
+   3.4.7  INSIDE_FRAC_THR optimizasyonu    — benchmark_scene_frac.py sonuçları
+   3.4.8  Scene conf eşiği optimizasyonu   — benchmark_scene_conf.py sonuçları
+   3.4.9  Scene temporal_window optim.     — benchmark_scene_temporal.py sonuçları
+   3.4.10 Crop vs Scene karşılaştırması    — compare_modes.py sonuçları (FPS + known_rate + viol_rate)
+   3.7    Literatür karşılaştırması        — Nath 2020, Wu 2019 vs Güvenlik Monitörü
 4. SONUÇ  (optimizasyon + literatür karşılaştırma alt başlıkları dahil)
 KAYNAKLAR  [1]–[13] APA formatı
 EK-1  Fizibilite Raporu (7 alt bölüm: problem, teknik, operasyonel, süre, maliyet, risk, sonuç)
@@ -277,4 +290,5 @@ EK-6  Kesinleşmiş Model Dosyaları
 - `benchmark_scene_frac.py` — scene INSIDE_FRAC_THR taraması [0.10–0.60], 200 frame, 4 video
 - `benchmark_scene_conf.py` — scene helmet/vest/mask conf taraması, 200 frame, 4 video
 - `benchmark_scene_temporal.py` — scene temporal_window taraması [5–50], 300 frame, 4 video
-- Sonuçlar: `runs/benchmarks/{skip,conf,temporal,scene_frac,scene_conf,scene_temporal}/` altında CSV
+- `compare_modes.py` — crop vs scene karşılaştırma; FPS + known_rate + viol_rate; 300 frame, 3 video
+- Sonuçlar: `runs/benchmarks/{skip,conf,temporal,scene_frac,scene_conf,scene_temporal,compare_modes}/` altında CSV
