@@ -18,17 +18,19 @@ import time
 from datetime import date
 
 import requests
+import io, sys
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
 BASE = "http://localhost:5050"
-PASS = "\033[92m✓\033[0m"
-FAIL = "\033[91m✗\033[0m"
+PASS = "[OK]"
+FAIL = "[XX]"
 
 results: list[tuple[str, bool, str]] = []
 
 
 def check(name: str, ok: bool, detail: str = ""):
     sym = PASS if ok else FAIL
-    print(f"  {sym}  {name}" + (f"  →  {detail}" if detail else ""))
+    print(f"  {sym}  {name}" + (f"  ->  {detail}" if detail else ""))
     results.append((name, ok, detail))
 
 
@@ -41,9 +43,9 @@ def post(path: str, body: dict = None, **kwargs):
 
 
 def section(title: str):
-    print(f"\n{'─'*50}")
+    print(f"\n{'='*50}")
     print(f"  {title}")
-    print(f"{'─'*50}")
+    print(f"{'='*50}")
 
 
 # ── 1. Genel sağlık ──────────────────────────────────────────────────────────
@@ -150,10 +152,10 @@ def print_summary():
     passed = sum(1 for _, ok, _ in results if ok)
     failed = total - passed
     print(f"\n{'='*50}")
-    print(f"  SONUÇ: {passed}/{total} başarılı" + (f", {failed} başarısız" if failed else " — tümü geçti"))
+    print(f"  SONUC: {passed}/{total} basarili" + (f", {failed} basarisiz" if failed else " -- tumü gecti"))
     print(f"{'='*50}")
     if failed:
-        print("\n  Başarısız testler:")
+        print("\n  Basarisiz testler:")
         for name, ok, detail in results:
             if not ok:
                 print(f"    {FAIL}  {name}  {detail}")

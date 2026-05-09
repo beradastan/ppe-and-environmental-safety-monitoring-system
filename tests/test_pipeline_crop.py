@@ -107,7 +107,7 @@ def run_video(video_path: Path, models: dict, max_frames: int) -> dict:
 
     violation_detected = {"helmet": False, "vest": False, "mask": False}
     fi = 0
-    t0 = time.perf_counter()
+    t0 = None  # warmup sonrası başlar
 
     while fi < max_frames:
         ok, frame = cap.read()
@@ -148,6 +148,9 @@ def run_video(video_path: Path, models: dict, max_frames: int) -> dict:
                 states[tid]["vest"].append(best(vm, vcrop, v_ids, VEST_CONF))
                 states[tid]["mask"].append(best(mm, mcrop, m_ids, MASK_CONF))
 
+            if fi == WARMUP_F + 1 and t0 is None:
+                t0 = time.perf_counter()
+
             if fi > WARMUP_F:
                 hv = vote(states[tid]["helmet"])
                 vv = vote(states[tid]["vest"])
@@ -159,10 +162,11 @@ def run_video(video_path: Path, models: dict, max_frames: int) -> dict:
                 if mv == "NO-Mask":
                     violation_detected["mask"] = True
 
-    elapsed = time.perf_counter() - t0
+    elapsed = time.perf_counter() - (t0 or time.perf_counter())
+    post_warmup_frames = max(fi - WARMUP_F, 1)
     cap.release()
     return {
-        "fps": round(fi / elapsed, 1),
+        "fps": round(post_warmup_frames / elapsed, 1) if elapsed > 0 else 0.0,
         "frames": fi,
         "violation_detected": violation_detected,
     }

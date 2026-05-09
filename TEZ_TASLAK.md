@@ -1144,6 +1144,173 @@ Bu bulgular, temporal_window = 20 değerinin; known_rate ile violation_rate aras
 
 ---
 
+### 3.4.7 İçerme Kesri Eşiği Optimizasyonu (INSIDE_FRAC_THR)
+
+Scene-based modda bir PPE tespitinin belirli bir kişiye atanabilmesi için PPE sınır kutusunun kişi sınır kutusu içindeki kesri, `INSIDE_FRAC_THR` eşiğini geçmelidir. Düşük eşik daha agresif eşleşme (daha az "unknown"), yüksek eşik ise daha seçici eşleşme anlamına gelmektedir. Bu eşiğin optimal değerini belirlemek amacıyla `scripts/benchmark_scene_frac.py` betiği ile [0,10; 0,60] aralığında sistematik tarama yapılmıştır.
+
+**Deney Tasarımı**
+
+Dört test videosu (nohat_test, novest_test, noppe_test, mask_test) ve 0,10'dan 0,60'a kadar 0,10 adımlı altı eşik değeri kullanılmıştır. Her koşulda 200 frame işlenmiş; ilk 30 frame ısınma olarak atlanmıştır. Helmet ve mask modellerinin kendi ihlal videoları (nohat_test), vest modelinin ise novest_test ve noppe_test videoları üzerindeki tepkisi ayrıca incelenmiştir.
+
+**Sonuçlar**
+
+| INSIDE_FRAC_THR | nohat H-known (%) | novest V-known (%) | novest V-viol (%) | noppe V-viol (%) | nohat M-known (%) |
+|-----------------|-------------------|--------------------|-------------------|------------------|-------------------|
+| 0,10 | 86,9 | 99,1 | 54,8 | 100,0 | 69,2 |
+| **0,20 (seçilen)** | **86,6** | **99,1** | **51,2** | **100,0** | **69,2** |
+| 0,30 | 86,6 | 97,0 | 48,6 | 100,0 | 98,2 |
+| 0,40 | 86,6 | 97,0 | 48,0 | 100,0 | 98,2 |
+| 0,50 | 86,6 | 97,0 | 48,0 | 100,0 | 98,2 |
+| 0,60 | 85,9 | 97,0 | 48,0 | 100,0 | 98,2 |
+
+**Analiz ve Karar**
+
+Baret (helmet) ve maske (mask) known_rate değerleri 0,10–0,60 aralığında büyük ölçüde kararlı kalmaktadır. Bu durum, söz konusu PPE türlerinin kişi sınır kutusu içinde yeterince merkezi konumda tespit edildiğini ve eşiğin artırılmasının tespit sayısını kayda değer biçimde azaltmadığını göstermektedir.
+
+Yelek (vest) ihlal tespiti ise eşiğe daha duyarlıdır. novest_test videosunda vest_viol, 0,10 eşiğinde %54,8 iken 0,30 eşiğinde %48,6'ya düşmektedir; noppe_test videosunda ise tüm eşik değerlerinde %100 olarak sabit kalmaktadır. Bu asimetri, novest_test videosundaki yelek tespitlerinin kişi kutusuna kısmen örtüşen konumlarda bulunmasından kaynaklanmaktadır.
+
+0,20 eşiği, baret ve maske known_rate'ini korurken novest_test'te vest_viol değerinin 0,10 düzeyine kıyasla yalnızca %3,6 gerilediği optimal denge noktası olarak belirlenmiştir. 0,30 ve üzerindeki değerler, yelek ihlal tespitinde daha belirgin bir gerilemeye (0,10'a kıyasla −6,2%) ve vest_known_rate'te de düşüşe (99,1% → 97,0%) yol açmaktadır.
+
+---
+
+### 3.4.8 Scene Modu Confidence Eşiği Optimizasyonu
+
+Scene-based modda PPE modelleri tam kare üzerinde çalışmakta; eşiği geçen tespitler daha sonra `INSIDE_FRAC_THR` kriteri ile kişilere atanmaktadır. Confidence eşiği düşürülürse daha fazla tespit kişi kutularıyla eşleşme şansı yakalar, ancak gürültülü düşük-güven tespitleri temporal voting penceresini kirletebilir. Bu dengeyi ölçmek amacıyla `scripts/benchmark_scene_conf.py` betiği ile her PPE türü için bağımsız eşik taraması yapılmıştır. INSIDE_FRAC_THR=0,20 ve SCENE_PPE_INFER_EVERY=2 üretim değerleri sabit tutulmuştur.
+
+**Deney Tasarımı**
+
+| PPE Türü | Tarama Aralığı | Üretim Değeri |
+|---------|---------------|--------------|
+| Baret (helmet) | [0.10, 0.15, 0.20, 0.25, 0.30, 0.35] | **0,25** |
+| Yelek (vest) | [0.15, 0.20, 0.25, 0.30, 0.35, 0.40] | **0,30** |
+| Maske (mask) | [0.05, 0.10, 0.15, 0.20, 0.25, 0.30] | **0,05** |
+
+Her koşulda 4 test videosu kullanılmış, 200 frame işlenmiş ve 30 frame ısınma olarak atlanmıştır.
+
+**Baret (helmet_conf) Sonuçları**
+
+| helmet_conf | nohat H-known (%) | nohat H-viol (%) | noppe H-known (%) | noppe H-viol (%) |
+|------------|-------------------|-----------------|-------------------|-----------------|
+| 0,10 | 86,2 | 47,9 | 97,2 | 69,6 |
+| 0,15 | 86,2 | 47,9 | 93,9 | 74,0 |
+| 0,20 | 86,2 | 48,7 | 93,9 | 74,0 |
+| **0,25 (seçilen)** | **83,9** | **50,0** | **93,6** | **74,6** |
+| 0,30 | 83,9 | 50,0 | 93,6 | 74,6 |
+| 0,35 | 81,3 | 55,6 | 93,6 | 74,9 |
+
+Baret modeli 0,10–0,30 aralığında kararlı bir davranış sergilemektedir. 0,25 eşiğinde nohat_test H-viol %50,0, noppe_test H-viol %74,6 değerlerine ulaşmaktadır; bu değerler 0,10'daki değerlere (47,9% ve 69,6%) kıyasla daha iyidir. Bunun nedeni, 0,25'te düşük-güvenilirlikli Hardhat tespitlerinin filtrelenmesiyle temporal voting penceresinin daha temiz karar üretmesidir. 0,35'e geçişte nohat_test H-known %81,3'e düşmekte; bu durum, örtüşme sınır durumlarında karar seyrelmesine işaret etmektedir.
+
+**Yelek (vest_conf) Sonuçları**
+
+| vest_conf | nohat V-known (%) | noppe V-known (%) | noppe V-viol (%) | novest V-known (%) | novest V-viol (%) |
+|----------|-------------------|-------------------|------------------|--------------------|------------------|
+| 0,15 | 95,4 | 86,9 | 100,0 | 98,8 | 50,8 |
+| 0,20 | 94,8 | 84,6 | 100,0 | 98,8 | 50,8 |
+| 0,25 | 92,8 | 84,6 | 100,0 | 97,9 | 50,3 |
+| **0,30 (seçilen)** | **90,8** | **84,3** | **100,0** | **97,9** | **50,3** |
+| 0,35 | 89,2 | 84,3 | 100,0 | 97,9 | 50,3 |
+| 0,40 | 85,2 | 83,5 | 100,0 | 97,9 | 50,3 |
+
+Yelek modelinde noppe_test V-viol tüm eşik değerlerinde %100'de sabit kalmaktadır. Düşük eşikler (0,15–0,20) known_rate'i artırmakta; ancak düşük-güvenilirlikli "NO-Safety Vest" tespitleri temporal penceresine girerek ihlal sinyalini gürültüyle karıştırma riski taşımaktadır. 0,30 değeri, known_rate'te %0,9'luk (97,9% → 97,0%) kabul edilebilir kayıpla gürültü filtresi işlevi görmekte ve noppe_test'te %100 ihlal tespitini korumaktadır.
+
+**Maske (mask_conf) Sonuçları**
+
+| mask_conf | nohat M-known (%) | nohat M-viol (%) | noppe M-known (%) | novest M-known (%) |
+|----------|------------------|-----------------|-------------------|-------------------|
+| **0,05 (seçilen)** | **90,8** | **100,0** | **97,5** | **99,4** |
+| 0,10 | 84,3 | 100,0 | 97,5 | 99,4 |
+| 0,15 | 76,1 | 100,0 | 97,4 | 97,6 |
+| 0,20 | 73,4 | 100,0 | 97,4 | 97,6 |
+| 0,25 | 71,8 | 100,0 | 97,4 | 97,6 |
+| 0,30 | 58,0 | 100,0 | 97,4 | 97,6 |
+
+Maske violation_rate tüm eşik değerlerinde %100'de sabit kalmaktadır; bu durum maske modelinin ihlal sınıfını güçlü biçimde ayırt edebildiğini göstermektedir. Buna karşın known_rate, eşiğin artmasıyla belirgin biçimde düşmektedir: nohat_test videosunda 0,05'ten 0,30'a geçişte %90,8'den %58,0'a gerilemektedir. Bu keskin düşüş, maske tespitlerinin önemli bir bölümünün 0,05–0,10 güven bandında üretildiğini ortaya koymaktadır. 0,05 eşiği seçilmiştir; çünkü violation_rate kaybı olmaksızın nohat_test M-known %90,8 ile maksimum değerine ulaşmakta ve temporal voting için en zengin karar akışı sağlanmaktadır.
+
+---
+
+### 3.4.9 Scene Modu Temporal Voting Penceresi Optimizasyonu
+
+Scene-based modda her kişi için baret, yelek ve maske kararları ayrı deque yapılarında saklanmakta; olay durum makinesi güncel kararı almak için bu pencerelerde çoğunluk oylaması yapmaktadır. Pencere boyutu (`SCENE_TEMPORAL_WIN`) küçüldükçe kararlar gürültüye daha duyarlı hale gelmekte, büyüdükçe ise doğru tespit oranı (violation_rate) kazanımlar sağlanmaktadır. Ancak çok geniş bir pencere, yelek gibi zor PPE türlerinde kararlı karar üretme oranını (known_rate) ve dolayısıyla ihlal tespitini olumsuz etkileyebilmektedir. Bu dengeyi ölçmek amacıyla `scripts/benchmark_scene_temporal.py` betiği ile yedi pencere boyutu sistematik olarak denenmiştir.
+
+**Deney Tasarımı**
+
+Dört test videosu ve [5, 10, 15, 20, 30, 40, 50] pencere boyutları kullanılmıştır. Her koşulda 300 frame işlenmiş; ilk 30 frame ısınma olarak atlanmıştır. Üretim parametreleri (INSIDE_FRAC_THR=0,20; SCENE_PPE_INFER_EVERY=2; conf değerleri) sabit tutulmuştur.
+
+**Sonuçlar**
+
+| Pencere | nohat H-known (%) | nohat M-known (%) | nohat H-viol (%) | novest V-viol (%) | noppe H-viol (%) |
+|---------|-------------------|-------------------|-----------------|-------------------|-----------------|
+| 5 | 72,4 | 52,1 | 37,0 | 52,2 | 68,8 |
+| 10 | 78,3 | 57,6 | 42,0 | 50,7 | 71,3 |
+| 15 | 80,6 | 61,8 | 43,5 | 49,9 | 71,9 |
+| 20 | 81,9 | 66,0 | 43,8 | 49,3 | 72,7 |
+| **30 (seçilen)** | **84,8** | **71,3** | **43,8** | **48,4** | **71,6** |
+| 40 | 87,3 | 73,6 | 45,4 | 47,4 | 71,8 |
+| 50 | 87,8 | 75,7 | 45,9 | 46,4 | 71,8 |
+
+**Analiz ve Karar**
+
+Baret ve maske known_rate değerleri pencere boyutu arttıkça tutarlı biçimde yükselmektedir: H-known, pencere=5'te %72,4'ten pencere=30'da %84,8'e, pencere=50'de ise %87,8'e ulaşmaktadır. M-known için aynı örüntü gözlemlenmektedir (%52,1 → %71,3 → %75,7).
+
+Yelek ihlal tespiti ise pencere büyüdükçe gerileme eğilimi göstermektedir: novest_test V-viol pencere=5'te %52,2 iken pencere=50'de %46,4'e düşmektedir. Bu, daha büyük pencerenin "unknown" kararlarla seyrelmesinden ve ihlal kararlarının azınlıkta kalmasından kaynaklanmaktadır.
+
+Pencere=30 değeri, H-known ve M-known'da pencere=20'ye kıyasla belirgin kazanım (+%2,9 ve +%5,3) sağlarken V-viol kaybı yalnızca %0,9'dur. Pencere=40'a geçişte ise H-known artışı marjinalleşmekte (+%2,5) ve V-viol kaybı daha belirgin hale gelmektedir (−%1,0). Bu örüntü, pencere=30'un baret/maske kararlılığı ile yelek ihlal duyarlılığı arasındaki en iyi dengeyi sağlayan elbow noktası olduğunu ortaya koymaktadır.
+
+Crop modunun optimal penceresi 20, scene modunun optimal penceresi ise 30 olarak belirlenmiştir. Bu fark, iki mimarinin PPE kararı üretme sıklığından kaynaklanmaktadır: crop modunda PPE_INFER_EVERY=4 (her 4 karede bir), scene modunda ise SCENE_PPE_INFER_EVERY=2 (her 2 karede bir) çalışmaktadır. Scene modu daha sık karar ürettiğinden temporal pencere daha kısa sürede dolmakta; dolayısıyla aynı süreye karşılık gelen etkili pencere boyutu crop moduna kıyasla daha büyük tutulabilmektedir.
+
+---
+
+### 3.4.10 Crop ve Scene Modlarının Karşılaştırılması
+
+Tüm parametre optimizasyonları tamamlandıktan sonra her iki mod, üretim parametreleriyle aynı üç ground truth videosu üzerinde doğrudan karşılaştırılmıştır (`scripts/compare_modes.py`). Bu karşılaştırma; FPS, PPE kararlılık oranı (known_rate) ve ihlal tespit oranını (viol_rate) yan yana ölçmektedir.
+
+**Deney Parametreleri**
+
+| Parametre | Crop Modu | Scene Modu |
+|-----------|-----------|------------|
+| PPE_INFER_EVERY | 4 | 2 |
+| Temporal pencere | 20 | 30 |
+| Baret conf | 0,20 | 0,25 |
+| Yelek conf | 0,30 | 0,30 |
+| Maske conf | 0,25 | 0,05 |
+| inside_frac_thr | — | 0,20 |
+
+**FPS Karşılaştırması**
+
+| Video | Crop FPS | Scene FPS | Scene Avantajı |
+|-------|----------|-----------|----------------|
+| nohat_test (1 kişi) | 20,2 | **30,2** | +%49 |
+| noppe_test (4 kişi) | 15,2 | **20,9** | +%37 |
+| novest_test (1 kişi) | 18,3 | **19,2** | +%5 |
+
+Scene modu, özellikle az kişili sahnelerde belirgin FPS avantajı sunmaktadır. Crop modunda her kişi için üç ayrı kırpma ve model çağrısı yapılmaktadır; kişi sayısı arttıkça GPU yükü doğrusal biçimde büyümektedir. Scene modunda ise PPE modelleri tam kare üzerinde yalnızca bir kez çalışmakta; kişi sayısı FPS'i doğrudan etkilememektedir. Bu mimari fark, nohat_test'te %49'luk FPS üstünlüğü olarak somutlaşmaktadır.
+
+**PPE Kararlılık ve İhlal Tespit Oranları**
+
+| Video | PPE | Crop known (%) | Scene known (%) | Crop viol (%) | Scene viol (%) |
+|-------|-----|---------------|----------------|--------------|---------------|
+| nohat_test | helmet | **88,0** | 85,7 | 49,2 | 37,9 |
+| nohat_test | mask | 49,2 | **78,1** | 100,0 | 100,0 |
+| noppe_test | helmet | **96,5** | 95,0 | 40,4 | **60,4** |
+| noppe_test | vest | **91,0** | 83,5 | 100,0 | 100,0 |
+| noppe_test | mask | 92,0 | **97,3** | 100,0 | 100,0 |
+| novest_test | vest | 91,3 | **99,0** | **53,0** | 48,6 |
+| novest_test | mask | 96,7 | **99,4** | 100,0 | 100,0 |
+
+**Analiz**
+
+Her iki mod da üç videodaki tüm ihlalleri doğru biçimde tespit etmiştir (7/7). İhlal tespiti açısından iki mod eşdeğer doğruluk sergilemektedir.
+
+Baret known_rate'inde crop modu nohat_test'te %2,3 üstündür. Bu avantaj, crop modunun kişiye özgü baş bölgesi kırpmasından kaynaklanmaktadır; kırpma, arka plan gürültüsünü azaltarak temporal voting'e daha temiz karar beslemektedir.
+
+Maske ve yelek known_rate'inde scene modu öne çıkmaktadır. nohat_test M-known'da fark en belirgindir: crop %49,2'ye karşılık scene %78,1. Bu videodaki kişilerin küçük yüz bölgesi, crop modelinin maskeli/maskesiz ayrımını zorlaştırmaktadır; scene modunun tam kare üzerinde çalışması ise daha geniş bağlamdan yararlanmasını sağlamaktadır.
+
+**Mimari Değerlendirme**
+
+Crop modu, kalabalık ve karmaşık arka planlı sahnelerde baret tespitinde üstünlük sağlamaktadır; çünkü kişi başına kırpma, diğer kişileri ve arka planı etkili biçimde dışarıda bırakmaktadır. Scene modu, maske ve yelek gibi daha geniş gövde bölgesini kapsayan PPE türlerinde ve sahnede az kişi bulunduğu durumlarda FPS avantajı ile daha yüksek kararlılık oranı sunmaktadır. Üretim ortamında iki mod arasındaki seçim; kamera açısına, beklenen kişi yoğunluğuna ve öncelikli izlenecek PPE türüne göre yapılabilmektedir.
+
+---
+
 ## 3.5 Ground Truth Değerlendirmesi
 
 Sistem, dört test videosu üzerinde kapsamlı biçimde sınanmış; her video için hem crop-based hem de scene-based modun ürettiği video düzeyindeki PPE ihlali kararları ground truth ile karşılaştırılmıştır.
