@@ -44,7 +44,6 @@ debug_out.txt
 compare_results.txt
 *.bak
 frontend/node_modules/
-.claude/
 
 # Results and logs
 results/*
