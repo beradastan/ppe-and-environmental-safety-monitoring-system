@@ -46,7 +46,7 @@ INSIDE_FRAC_THR = 0.20
 TEMPORAL_WIN = 30
 PIPELINE_MAX_WIDTH = 1280
 PPE_INFER_EVERY = 2
-TRACKER = "bytetrack.yaml"
+TRACKER = "config/bytetrack.yaml"
 IMGSZ = 640
 WARMUP_F = 30
 

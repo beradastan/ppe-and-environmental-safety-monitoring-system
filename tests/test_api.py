@@ -69,14 +69,14 @@ def test_config():
     check("GET /api/config", r.status_code == 200)
     if r.status_code == 200:
         cfg = r.json()
-        for key in ["use_helmet", "use_vest", "use_mask", "use_fire", "new_confirm_sec"]:
+        for key in ["use_helmet", "use_vest", "use_mask", "use_fire", "temporal_window"]:
             check(f"  config['{key}'] mevcut", key in cfg, str(cfg.get(key, "YOK")))
 
     # PUT test
-    r2 = requests.put(BASE + "/api/config", json={"new_confirm_sec": 3.0}, timeout=10)
-    check("PUT /api/config (new_confirm_sec=3.0)", r2.status_code == 200)
+    r2 = requests.put(BASE + "/api/config", json={"temporal_window": 25}, timeout=10)
+    check("PUT /api/config (temporal_window=25)", r2.status_code == 200)
     # Geri al
-    requests.put(BASE + "/api/config", json={"new_confirm_sec": 2.0}, timeout=10)
+    requests.put(BASE + "/api/config", json={"temporal_window": 20}, timeout=10)
 
 
 # ── 3. Events ────────────────────────────────────────────────────────────────
