@@ -59,3 +59,20 @@ data/roboflow/
 .DS_Store
 Thumbs.db
 
+# Claude Code memory (local AI assistant state)
+.claude/
+
+# Large test videos
+test/*_4k.mp4
+
+# Benchmark / thesis scratch outputs
+TEZ_BULGULAR_VERILERI.md
+benchmark_results.*
+daily_report_*.json
+weekly_report_*.json
+monthly_report_*.json
+compare_vest.py
+export_dummy.py
+generate_dummy.py
+dummy_events_export.json
+
