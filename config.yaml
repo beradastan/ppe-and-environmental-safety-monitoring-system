@@ -21,46 +21,48 @@ detection:
 event_manager:
   fire_clear_frames: 10
   fire_confirm_frames: 20
-  new_confirm_sec: 3.0
   resolved_confirm_sec: 5.0
 llm:
   base_url: http://localhost:11434
   enabled: true
-  model: qwen2.5:7b
+  model: qwen3:8b
   temperature: 0.3
   timeout: 120
 models:
-  crop:
-    helmet_model: models/bera/crophelmet_agent_final_best.pt
-    mask_imgsz: 640
-    mask_model: models/bera/cropmask_agent_final_best.pt
-    vest_model: models/bera/cropvest_agent_final_best.pt
   device: cuda
   fire_model: models/bera/fire_smoke_other_agent_final_best.pt
   person_model: models/person_agent_scene_vinayakstyle_best.pt
+  crop:
+    helmet_model: models/bera/crophelmet_agent_final_best.pt
+    vest_model: models/bera/cropvest_agent_final_best.pt
+    mask_model: models/bera/cropmask_agent_final_best.pt
+    mask_imgsz: 640
   scene:
     helmet_model: models/vinayak_trained_byBera/helmet_agent_final_best.pt
-    mask_model: models/mask_agent_scene_200ep_yolov8m_best.pt
     vest_model: models/vinayak_trained_byBera/vest_agent_final_best.pt
+    mask_model: models/mask_agent_scene_200ep_yolov8m_best.pt
 ppe_pipeline:
   cam_dark_frames: 60
   cam_dark_thresh: 0.03
   cam_freeze_diff: 0.002
   cam_freeze_frames: 60
-  fire_conf: 0.5
+  crop_helmet_conf: 0.20
+  crop_vest_conf: 0.30
+  crop_mask_conf: 0.25
+  scene_helmet_conf: 0.25
+  scene_vest_conf: 0.30
+  scene_mask_conf: 0.05
+  fire_conf: 0.50
   fire_growth_factor: 1.5
   fire_growth_window: 10
   fire_min_area_ratio: 0.027
-  helmet_conf: 0.2
-  mask_conf: 0.25
-  new_confirm_sec: 2.0
   person_conf: 0.25
   resolved_confirm_sec: 5
   temporal_window: 20
+  scene_temporal_window: 30
   use_fire: true
   use_helmet: true
   use_mask: true
   use_vest: true
-  vest_conf: 0.3
 results_dir: results
 results_keep_events: 50
