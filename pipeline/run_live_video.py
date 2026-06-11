@@ -121,10 +121,9 @@ def run(args) -> None:
     if start_counter:
         print(f"  Mevcut {start_counter} event bulundu, sayac {start_counter}'den devam ediyor.")
 
-    source = args.video if args.video else int(args.camera)
-    cap = cv2.VideoCapture(source)
+    cap = cv2.VideoCapture(int(args.camera))
     if not cap.isOpened():
-        sys.exit(f"Kaynak acilamadi: {source}")
+        sys.exit(f"Kaynak acilamadi: {args.camera}")
 
     if args.display:
         cv2.namedWindow("Canli Goruntu", cv2.WINDOW_NORMAL)
@@ -248,7 +247,6 @@ def run(args) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--camera",    default=0,      help="Kamera indeksi (varsayilan: 0)")
-    parser.add_argument("--video",     default=None,   help="Test video dosyasi yolu (kamera yerine)")
     parser.add_argument("--mode",      default="crop", choices=["crop", "scene"],
                         help="Tespit modu: crop-based veya scene-based (varsayilan: crop)")
     parser.add_argument("--device",    default=DEVICE, help="cuda veya cpu")
