@@ -1,6 +1,5 @@
 """
-LLMCoordinator - Ollama/LocalLLM entegrasyonu
-Deteksiyon sonuçlarini LLM'e göndererek analiz yap
+LLMCoordinator — Ollama integration for real-time PPE violation reporting.
 """
 
 import logging
@@ -11,12 +10,7 @@ from datetime import datetime
 
 
 class OllamaLLMCoordinator:
-    """Ollama LLM kullanarak detection analizi ve öneriler
-    
-    ⚡ OPTİMİZE MODLAR:
-    - use_minimal_format=True (DEFAULT) → Sadece ihlal özeti, hızlı
-    - use_minimal_format=False → Detaylı format, daha açıklayıcı
-    """
+    """Generates concise safety reports via Ollama for each detected PPE violation event."""
 
     def __init__(
         self,
@@ -40,28 +34,28 @@ class OllamaLLMCoordinator:
         if not offline_mode:
             self.check_connection()
         else:
-            self.logger.warning("OFFLINE MODE - Mock LLM kullaniliyor")
+            self.logger.warning("OFFLINE MODE — using mock LLM")
 
     # ── Baglanti & temel request ───────────────────────────────────
 
     def check_connection(self) -> bool:
-        """Ollama sunucusuna baglanti kontrol et"""
+        """Check connectivity to the Ollama server."""
         try:
             response = requests.get(f"{self.ollama_base_url}/api/tags", timeout=self.timeout)
             if response.status_code == 200:
-                self.logger.info(f"Ollama baglantisi basarili: {self.ollama_base_url}")
+                self.logger.info(f"Ollama connection successful: {self.ollama_base_url}")
                 return True
-            self.logger.warning(f"Ollama baglanti hatasi: {response.status_code}")
+            self.logger.warning(f"Ollama connection error: {response.status_code}")
             return False
         except requests.exceptions.ConnectionError:
-            self.logger.warning(f"Ollama sunucusuna baglanamadi: {self.ollama_base_url}")
+            self.logger.warning(f"Cannot connect to Ollama: {self.ollama_base_url}")
             return False
         except Exception as e:
-            self.logger.error(f"Hata: {str(e)}")
+            self.logger.error(f"Error: {str(e)}")
             return False
 
     def generate_response(self, prompt: str, temperature: float = 0.2) -> str:
-        """LLM'ye prompt göndererek yanit al."""
+        """Send a prompt to the LLM and return the response text."""
         try:
             payload = {
                 "model": self.model_name,
@@ -76,10 +70,10 @@ class OllamaLLMCoordinator:
             )
             if response.status_code == 200:
                 return response.json().get("response", "")
-            self.logger.error(f"LLM hata: {response.status_code}")
+            self.logger.error(f"LLM error: {response.status_code}")
             return ""
         except Exception as e:
-            self.logger.error(f"Prompt gonderme hatasi: {str(e)}")
+            self.logger.error(f"Error sending prompt: {str(e)}")
             return ""
 
     # ── Formatlama — CNN ciktisi → LLM'in anlayacagi metin ────────
@@ -266,7 +260,7 @@ class OllamaLLMCoordinator:
                 "Rapor:"
             )
 
-        self.logger.info(f"LLM raporu isteniyor: {image_name}")
+        self.logger.info(f"Requesting LLM report: {image_name}")
 
         if self.offline_mode:
             llm_text = self._mock_report(helmet_result, vest_result, fire_result)
@@ -275,7 +269,7 @@ class OllamaLLMCoordinator:
             llm_text = self.generate_response(prompt, temperature=0.1)
 
         if not llm_text:
-            llm_text = "[LLM yanit veremedi — Ollama servisi kontrol ediniz]"
+            llm_text = "[LLM unavailable — check Ollama service]"
 
         result = {
             "alarm"      : True,
@@ -317,86 +311,3 @@ class OllamaLLMCoordinator:
         
         return " ".join(parts)
 
-    # ── Eski metodlar (gerive donus uyumluluk) ────────────────────
-
-    def coordinate_detections(self, detection_results: Dict) -> Dict:
-        """[Eski] Coklu detection sonuclarindan hareketle LLM ile karar ver"""
-        try:
-            detection_summary = self._format_detection_summary(detection_results)
-            prompt = (
-                "Sen bir Endustriyel Is Sagligi ve Guvenligi Uzmani Yapay Zekasın.\n"
-                "Asagidaki guvenlik tespiti sonuclarina dayanarak kisa, profesyonel bir rapor olustur:\n\n"
-                f"{detection_summary}\n\n"
-                "Raporunda: Genel Durum, Risk Seviyesi, Kritik Ihlaller, Acil Eylem."
-            )
-            response = self.generate_response(prompt, temperature=0.3)
-            return {
-                "timestamp"     : datetime.now().isoformat(),
-                "coordinator"   : "LLMCoordinator",
-                "llm_analysis"  : response,
-                "raw_detections": detection_results,
-                "status"        : "success"
-            }
-        except Exception as e:
-            self.logger.error(f"Koordinasyon hatasi: {str(e)}")
-            return {"timestamp": datetime.now().isoformat(), "error": str(e), "status": "failed"}
-
-    def _format_detection_summary(self, detection_results: Dict) -> str:
-        """[Eski] Detection sonuclarini LLM icin formatla"""
-        summary = "Detection Sonuclari:\n"
-        for agent_name, result in detection_results.items():
-            if isinstance(result, dict):
-                detection_count = result.get("detection_count", 0)
-                detections = result.get("detections", [])
-                summary += f"\n{agent_name}:\n  - Toplam Tespit: {detection_count}\n"
-                for i, det in enumerate(detections[:3]):
-                    label = det.get("label", "unknown")
-                    confidence = det.get("confidence", 0)
-                    summary += f"  - {i+1}. {label} (Guven: {confidence:.2%})\n"
-                if len(detections) > 3:
-                    summary += f"  - ... ve {len(detections) - 3} daha tespit\n"
-        return summary
-
-    def analyze_detection(self, llm_prompt: str, max_tokens: int = 512) -> Dict[str, Any]:
-        """[Eski] Detection sonuclarini LLM'e göndererek analiz yap"""
-        try:
-            response = self.generate_response(llm_prompt)
-            if response:
-                return {"success": True, "analysis": response, "model": self.model_name,
-                        "tokens_generated": len(response.split())}
-            return {"success": False, "error": "Ollama yanit veremedi", "model": self.model_name}
-        except Exception as e:
-            self.logger.error(f"Analysis hatasi: {str(e)}")
-            return {"success": False, "error": str(e), "model": self.model_name}
-
-    def get_agent_instructions(self, detection_type: str) -> str:
-        """[Eski] Belirli detection turu icin LLM'den talimat al"""
-        try:
-            prompt = f"Guvenlik gozetim sistemi: '{detection_type}' tespiti icin adimlar (max 100 kelime)."
-            return self.generate_response(prompt, temperature=0.2)
-        except Exception as e:
-            self.logger.error(f"Talimat alinamadi: {str(e)}")
-            return ""
-
-
-class MockLLMCoordinator:
-    """Test icin mock LLM coordinator"""
-
-    def __init__(self, model_name: str = "mock"):
-        self.model_name = model_name
-        self.logger = logging.getLogger("MockLLMCoordinator")
-
-    def generate_alarm_report(self, helmet_result, vest_result, fire_result,
-                              image_name="unknown") -> Dict[str, Any]:
-        """Mock alarm raporu (offline mode ile OllamaLLMCoordinator kullanir)"""
-        coordinator = OllamaLLMCoordinator(offline_mode=True)
-        return coordinator.generate_alarm_report(
-            helmet_result, vest_result, fire_result, image_name
-        )
-
-    def analyze_detection(self, llm_prompt: str, max_tokens: int = 512) -> Dict[str, Any]:
-        """[Eski] Mock analiz"""
-        mock_response = ("Fabrika guvenlik durumu degerlendirildi. "
-                         "Eksik KKD tespiti yapilmistir. "
-                         "Derhal denetim baslatilmalidir.")
-        return {"success": True, "analysis": mock_response, "model": self.model_name, "is_mock": True}

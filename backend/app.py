@@ -28,11 +28,11 @@ app.register_blueprint(settings.bp)
 
 @socketio.on("connect")
 def on_connect():
-    logger.info("İstemci bağlandı.")
+    logger.info("Client connected.")
 
 @socketio.on("disconnect")
 def on_disconnect():
-    logger.info("İstemci ayrıldı.")
+    logger.info("Client disconnected.")
 
 def main() -> None:
     watcher = ResultsWatcher(RESULTS_DIR, socketio)
@@ -41,8 +41,8 @@ def main() -> None:
     if USE_DB:
         reports.start_report_scheduler()
 
-    logger.info("Backend başlıyor → http://%s:%s", HOST, PORT)
-    logger.info("Results dizini: %s", RESULTS_DIR)
+    logger.info("Starting backend → http://%s:%s", HOST, PORT)
+    logger.info("Results directory: %s", RESULTS_DIR)
 
     try:
         socketio.run(app, host=HOST, port=PORT, debug=False, use_reloader=False)

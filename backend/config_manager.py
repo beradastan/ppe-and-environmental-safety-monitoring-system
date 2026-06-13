@@ -68,9 +68,9 @@ if _db_enabled():
         init_db()
         _db_reader = _dbr
         USE_DB     = True
-        logger.info("DB reader aktif.")
+        logger.info("Database reader active.")
     except Exception as exc:
-        logger.warning("DB baglantisi kurulamadi, dosya sistemine donuluyor: %s", exc)
+        logger.warning("Database connection failed, falling back to file system: %s", exc)
 
 if not USE_DB:
     import backend.event_reader as _fr

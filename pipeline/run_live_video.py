@@ -38,7 +38,7 @@ def run(args) -> None:
     half   = (device == "cuda")
     mode   = args.mode
 
-    print(f"Modeller yukleniyor... (mod: {mode})")
+    print(f"Loading models... (mode: {mode})")
     person_model = YOLO(PERSON_MODEL_PATH)
     fire_model   = YOLO(FIRE_MODEL_PATH)
 
@@ -46,12 +46,12 @@ def run(args) -> None:
         helmet_model = YOLO(CROP_HELMET_MODEL_PATH)
         vest_model   = YOLO(CROP_VEST_MODEL_PATH)
         mask_model   = YOLO(CROP_MASK_MODEL_PATH)
-        print(f"  Crop modelleri: {CROP_HELMET_MODEL_PATH}")
+        print(f"  Crop models: {CROP_HELMET_MODEL_PATH}")
     else:
         helmet_model = YOLO(SCENE_HELMET_MODEL_PATH)
         vest_model   = YOLO(SCENE_VEST_MODEL_PATH)
         mask_model   = YOLO(SCENE_MASK_MODEL_PATH)
-        print(f"  Scene modelleri: {SCENE_HELMET_MODEL_PATH}")
+        print(f"  Scene models: {SCENE_HELMET_MODEL_PATH}")
 
     _person_cls = next(n for n in person_model.names.values() if n.lower() == "person")
     p_ids = class_ids(person_model, [_person_cls])
@@ -119,15 +119,15 @@ def run(args) -> None:
     start_counter = max((int(d.name.split("_")[1]) for d in existing), default=0)
     event_manager._counter = start_counter
     if start_counter:
-        print(f"  Mevcut {start_counter} event bulundu, sayac {start_counter}'den devam ediyor.")
+        print(f"  Found {start_counter} existing events, counter continues from {start_counter}.")
 
     cap = cv2.VideoCapture(int(args.camera))
     if not cap.isOpened():
-        sys.exit(f"Kaynak acilamadi: {args.camera}")
+        sys.exit(f"Failed to open camera source: {args.camera}")
 
     if args.display:
-        cv2.namedWindow("Canli Goruntu", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("Canli Goruntu", 1280, 720)
+        cv2.namedWindow("Live View", cv2.WINDOW_NORMAL)
+        cv2.resizeWindow("Live View", 1280, 720)
 
     frame_idx       = 0
     event_count     = 0
@@ -136,7 +136,7 @@ def run(args) -> None:
     _smoke_raw      = False
     _smoke_conf_max = 0.0
 
-    print("Basladi." + (" ESC = cikis." if args.display else " Ctrl+C = cikis.") + f" [{mode.upper()} modu]\n")
+    print("Started." + (" ESC = quit." if args.display else " Ctrl+C = quit.") + f" [{mode.upper()} mode]\n")
 
     try:
         while True:
@@ -224,7 +224,7 @@ def run(args) -> None:
                     event_info.get("repeat_count", 0),
                     event_info.get("person_violations", []),
                 )
-                cv2.imshow("Canli Goruntu", draw_frame)
+                cv2.imshow("Live View", draw_frame)
                 if cv2.waitKey(1) & 0xFF == 27:
                     break
 
@@ -238,22 +238,22 @@ def run(args) -> None:
         if args.display:
             cv2.destroyAllWindows()
         notify_camera_status("online", args.camera_id, args.zone)
-        print(f"\nToplam frame: {frame_idx} | Kaydedilen event: {event_count}")
-        print("Sonuclar: results/")
+        print(f"\nTotal frames: {frame_idx} | Saved events: {event_count}")
+        print("Results: results/")
         if event_manager._active is not None:
             ev = event_manager._active
             close_event(ev.event_id, ev.repeat_count, ev.duration_sec)
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--camera",    default=0,      help="Kamera indeksi (varsayilan: 0)")
+    parser.add_argument("--camera",    default=0,      help="Camera index (default: 0)")
     parser.add_argument("--mode",      default="crop", choices=["crop", "scene"],
-                        help="Tespit modu: crop-based veya scene-based (varsayilan: crop)")
-    parser.add_argument("--device",    default=DEVICE, help="cuda veya cpu")
-    parser.add_argument("--display",   action="store_true", help="OpenCV penceresi goster")
+                        help="Detection mode: crop-based or scene-based (default: crop)")
+    parser.add_argument("--device",    default=DEVICE, help="cuda or cpu")
+    parser.add_argument("--display",   action="store_true", help="Show OpenCV window")
     parser.add_argument("--camera-id", default=None,   dest="camera_id",
-                        help="Kamera kimligi (orn: cam_01)")
-    parser.add_argument("--zone",      default=None,   help="Kamera bolgesi (orn: Uretim Hatti A)")
+                        help="Camera identifier (e.g. cam_01)")
+    parser.add_argument("--zone",      default=None,   help="Camera zone (e.g. Production Line A)")
     return parser.parse_args()
 
 if __name__ == "__main__":

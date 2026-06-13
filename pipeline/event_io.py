@@ -39,7 +39,7 @@ def notify_camera_status(
             json={"status": status, "camera_id": camera_id or "", "zone": zone or ""},
             timeout=2,
         )
-        print(f"  [KAMERA] Durum: {status}")
+        print(f"  [CAMERA] Status: {status}")
     except Exception:
         pass
 
@@ -59,9 +59,9 @@ def close_event(
             json=body,
             timeout=5,
         )
-        print(f"  [CLOSE] {event_id} kapatildi.")
+        print(f"  [CLOSE] {event_id} closed.")
     except Exception as exc:
-        print(f"  [CLOSE] Hata: {exc}")
+        print(f"  [CLOSE] Error: {exc}")
 
 def save_event(
     event_info:       dict,
@@ -147,7 +147,7 @@ def save_event(
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
     cv2.imwrite(str(img_path), frame)
-    print(f"  [KAYIT] {event_id}/new  alarm: {alarm_text}")
+    print(f"  [SAVE] {event_id}/new  alarm: {alarm_text}")
 
     try:
         import winsound
@@ -165,6 +165,6 @@ def cleanup_old_results(results_dir: Path, keep: int) -> None:
     for d in dirs[:-keep] if len(dirs) > keep else []:
         try:
             shutil.rmtree(d)
-            print(f"  [TEMIZLIK] Silindi: {d.name}")
+            print(f"  [CLEANUP] Deleted: {d.name}")
         except Exception as exc:
-            print(f"  [TEMIZLIK] Hata ({d.name}): {exc}")
+            print(f"  [CLEANUP] Error ({d.name}): {exc}")

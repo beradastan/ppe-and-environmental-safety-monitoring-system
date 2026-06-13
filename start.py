@@ -25,10 +25,10 @@ def header() -> None:
     print()
     print()
 
-def step(msg: str)  -> None: print(f"  {_c('cyan',  '►')} {msg}")
-def ok(msg: str)    -> None: print(f"  {_c('green', '✓')} {msg}")
-def warn(msg: str)  -> None: print(f"  {_c('yellow','⚠')} {msg}")
-def fail(msg: str)  -> None: print(f"  {_c('red',   '✗')} {msg}")
+def step(msg: str) -> None: print(f"  {_c('cyan',   '►')} {msg}")
+def ok(msg: str)   -> None: print(f"  {_c('green',  '✓')} {msg}")
+def warn(msg: str) -> None: print(f"  {_c('yellow', '⚠')} {msg}")
+def fail(msg: str) -> None: print(f"  {_c('red',    '✗')} {msg}")
 
 def port_in_use(port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -53,43 +53,43 @@ def open_terminal(title: str, cmd: str) -> None:
     )
 
 def check_env() -> bool:
-    step("Ortam kontrol ediliyor...")
+    step("Checking environment...")
     ok_flag = True
 
     if not VENV_PY.exists():
-        fail("Python sanal ortami bulunamadi: .venv")
-        print(_c("gray", "       Cozum: python -m venv .venv  &&  .venv\\Scripts\\pip install -r requirements.txt"))
+        fail("Python virtual environment not found: .venv")
+        print(_c("gray", "       Fix: python -m venv .venv  &&  .venv\\Scripts\\pip install -r requirements.txt"))
         ok_flag = False
     else:
-        ok("Python sanal ortami mevcut")
+        ok("Python virtual environment found")
 
     if not (FRONTEND / "node_modules").exists():
-        fail("Frontend bagimliliklari eksik: frontend\\node_modules")
-        print(_c("gray", "       Cozum: cd frontend  &&  npm install"))
+        fail("Frontend dependencies missing: frontend\\node_modules")
+        print(_c("gray", "       Fix: cd frontend  &&  npm install"))
         ok_flag = False
     else:
-        ok("Frontend bagimliliklari mevcut")
+        ok("Frontend dependencies found")
 
     return ok_flag
 
 def start_backend() -> None:
     if port_in_use(BACKEND_PORT):
-        warn(f"Port {BACKEND_PORT} zaten kullanimda — Backend atlaniyor")
+        warn(f"Port {BACKEND_PORT} already in use — skipping backend")
         return
-    step(f"Backend baslatiliyor  (http://localhost:{BACKEND_PORT})...")
+    step(f"Starting backend  (http://localhost:{BACKEND_PORT})...")
     cmd = f"Set-Location '{ROOT}'; & '{VENV_PY}' -m backend.app"
     open_terminal(f"Backend (:{BACKEND_PORT})", cmd)
-    ok("Backend penceresi acildi")
+    ok("Backend window opened")
 
 def start_frontend() -> None:
     if port_in_use(FRONTEND_PORT):
-        warn(f"Port {FRONTEND_PORT} zaten kullanimda — Frontend atlaniyor")
+        warn(f"Port {FRONTEND_PORT} already in use — skipping frontend")
         return
     npm = shutil.which("npm") or "npm"
-    step(f"Frontend baslatiliyor  (http://localhost:{FRONTEND_PORT})...")
+    step(f"Starting frontend  (http://localhost:{FRONTEND_PORT})...")
     cmd = f"Set-Location '{FRONTEND}'; {npm} run dev"
     open_terminal(f"Frontend (:{FRONTEND_PORT})", cmd)
-    ok("Frontend penceresi acildi")
+    ok("Frontend window opened")
 
 def summary() -> None:
     sep = _c("gray", "  " + "─" * 45)
@@ -98,9 +98,9 @@ def summary() -> None:
     print(f"  Backend   →  http://localhost:{BACKEND_PORT}")
     print(f"  Frontend  →  http://localhost:{FRONTEND_PORT}")
     print()
-    print(_c("gray", "  Pipeline icin CameraSetup sayfasini kullanin veya:"))
+    print(_c("gray", "  To start the pipeline use the CameraSetup page or:"))
     print(_c("gray", "  python pipeline/run_live_video.py --mode crop --camera 0 \\"))
-    print(_c("gray", "    --camera-id cam_01 --zone \"Uretim Hatti A\" --display"))
+    print(_c("gray", "    --camera-id cam_01 --zone \"Production Line A\" --display"))
     print(sep)
     print()
 

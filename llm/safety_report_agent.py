@@ -36,14 +36,14 @@ class SafetyReportAgent:
             )
             if response.status_code == 200:
                 return response.json().get("response", "").strip()
-            return f"[LLM hata: HTTP {response.status_code}]"
+            return f"[LLM error: HTTP {response.status_code}]"
         except requests.exceptions.ConnectionError:
-            return "[LLM bağlantı hatası: Ollama çalışıyor mu? `ollama serve` kontrol et]"
+            return "[LLM connection error: Is Ollama running? Check `ollama serve`]"
         except Exception as e:
-            return f"[LLM hatası: {e}]"
+            return f"[LLM error: {e}]"
 
     def _strip_thinking(self, text: str) -> str:
-        # Qwen3 thinking bloklarını temizle (<think>...</think>)
+        # Strip Qwen3 thinking blocks (<think>...</think>)
         return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
 
     def _build_prompt(self, summary_json: dict) -> str:

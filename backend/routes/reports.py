@@ -48,9 +48,9 @@ def _wide_fetch_start(period: str, start: str) -> str:
 
 def _run_llm_and_save(period: str, date_str: str | None, auto_generated: bool = False) -> None:
     if not _LLM_LOCK.acquire(blocking=False):
-        logger.warning("LLM raporu zaten üretiliyor, istek atlandı (%s).", period)
+        logger.warning("LLM report already in progress, skipping request (%s).", period)
         socketio.emit("report_llm_error", {
-            "period": period, "date": date_str or "", "error": "LLM meşgul, lütfen bekleyin."
+            "period": period, "date": date_str or "", "error": "LLM busy, please wait."
         })
         return
     try:
@@ -90,9 +90,9 @@ def _run_llm_inner(period: str, date_str: str | None, auto_generated: bool) -> N
             "llm_text": text, "auto_generated": auto_generated,
         })
         if auto_generated:
-            logger.info("Otomatik %s raporu oluşturuldu (%s).", period, start)
+            logger.info("Scheduled %s report generated (%s).", period, start)
     except Exception as exc:
-        logger.error("LLM rapor hatasi (%s): %s", period, exc)
+        logger.error("LLM report error (%s): %s", period, exc)
         socketio.emit("report_llm_error", {
             "period": period, "date": date_str or "", "error": str(exc)
         })
@@ -121,7 +121,7 @@ def start_report_scheduler() -> None:
             time.sleep(30)
 
     threading.Thread(target=_loop, daemon=True, name="report-scheduler").start()
-    logger.info("Rapor zamanlayıcısı başlatıldı.")
+    logger.info("Report scheduler started.")
 
 @bp.route("/api/reports")
 def api_get_reports():
