@@ -369,17 +369,10 @@ ollama serve
 Backend çalışırken:
 
 ```bash
-# API uçtan uca testi
 python tests/test_api.py
-
-# Crop modu pipeline testi (4 video)
-python tests/test_pipeline_crop.py --max-frames 200
-
-# Scene modu pipeline testi
-python tests/test_pipeline_scene.py --max-frames 200
 ```
 
-Test videoları `test/` dizininde olmalıdır: `nohat_test.mp4`, `novest_test.mp4`, `noppe_test.mp4`, `mask_test.mp4`
+API uçtan uca testi 15+ endpoint'i kontrol eder ve sonuçları raporlar.
 
 ---
 
