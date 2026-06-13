@@ -214,7 +214,7 @@ export default function Reports({ theme = 'dark' }) {
     try {
       await downloadExportCSV(period, dateParam)
     } catch (err) {
-      console.error('CSV export hatası:', err)
+      console.error('CSV export error:', err)
     } finally {
       setExporting(false)
     }
@@ -225,7 +225,7 @@ export default function Reports({ theme = 'dark' }) {
     try {
       await downloadExportPDF(period, dateParam)
     } catch (err) {
-      console.error('PDF export hatası:', err)
+      console.error('PDF export error:', err)
     } finally {
       setExporting(false)
     }

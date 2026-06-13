@@ -250,13 +250,13 @@ def get_report_data(period: str, date_str: str | None = None) -> list[dict]:
     anchor = date.fromisoformat(date_str) if date_str else today
 
     if period == "weekly":
-        # Pazartesi → Pazar (veya bugün)
+        # Monday → Sunday (or today)
         start_d = anchor - timedelta(days=anchor.weekday())
         end_d   = min(start_d + timedelta(days=6), today)
         days = [(start_d + timedelta(days=i)).isoformat()
                 for i in range((end_d - start_d).days + 1)]
     else:
-        # Ayın 1'i → son günü (veya bugün)
+        # 1st of month → last day (or today)
         start_d = anchor.replace(day=1)
         last    = _cal.monthrange(start_d.year, start_d.month)[1]
         end_d   = min(start_d.replace(day=last), today)
