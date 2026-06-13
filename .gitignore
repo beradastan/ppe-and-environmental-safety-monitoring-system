@@ -62,8 +62,11 @@ Thumbs.db
 # Claude Code memory (local AI assistant state)
 .claude/
 
-# Large test videos
-test/*_4k.mp4
+# Test media files (provide your own)
+test/*.mp4
+test/*.jpg
+test/*.png
+test/*.webp
 
 # Benchmark / thesis scratch outputs
 TEZ_BULGULAR_VERILERI.md
