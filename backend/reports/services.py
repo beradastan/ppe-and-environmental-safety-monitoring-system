@@ -39,8 +39,6 @@ class EventAnalyticsService:
         return "critical"
 
     def normalize_risk_score(self, raw_score: int) -> float:
-        """Maps raw score to 0-100 preserving risk level semantics:
-        low (0-19) → 0-25, medium (20-49) → 25-50, high (50-99) → 50-75, critical (100+) → 75-100"""
         if raw_score < 20:
             return round(raw_score / 20 * 25, 1)
         elif raw_score < 50:
@@ -49,7 +47,6 @@ class EventAnalyticsService:
             return round(50 + (raw_score - 50) / 50 * 25, 1)
         else:
             return min(100.0, round(75 + (raw_score - 100) / 20, 1))
-
 
 class ReportSummaryService:
     def __init__(self, analytics_service: EventAnalyticsService):

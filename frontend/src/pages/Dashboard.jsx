@@ -60,7 +60,7 @@ export default function Dashboard({ onNavigate, onSelectEvent, theme = 'dark', s
   return (
     <div className="dashboard-page">
 
-      {/* Stat kartlar */}
+      {}
       <div className="db-cards">
         <div className="db-card db-card--danger">
           <div className="db-card__value">{stats.active_alarms}</div>
@@ -83,7 +83,7 @@ export default function Dashboard({ onNavigate, onSelectEvent, theme = 'dark', s
       </div>
 
       <div className="db-bottom">
-        {/* İhlal dağılım grafiği */}
+        {}
         <div className="db-chart-panel">
           <h3 className="db-section-title">İhlal Dağılımı</h3>
           <ResponsiveContainer width="100%" height={220}>
@@ -105,7 +105,7 @@ export default function Dashboard({ onNavigate, onSelectEvent, theme = 'dark', s
           </ResponsiveContainer>
         </div>
 
-        {/* Son alarmlar */}
+        {}
         <div className="db-recent-panel">
           <div className="db-recent-header">
             <h3 className="db-section-title">Son Alarmlar</h3>

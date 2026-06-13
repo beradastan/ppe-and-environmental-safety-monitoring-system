@@ -1,10 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-event_reader.py
-===============
-results/ dizinini okuyup Python dict'lerine çeviren saf yardımcı modül.
-Flask ve watcher bu modülü kullanır; doğrudan dosya sistemi erişimi yapmaz.
-"""
 from __future__ import annotations
 
 import json
@@ -12,12 +5,10 @@ import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-# evt_0001_new.json / evt_0001_update_03.jpg / evt_0001_closed.json
 _FILENAME_RE = re.compile(
     r"^(evt_\d+)_(new|update_(\d+)|closed)\.(json|jpg)$"
 )
 _EVENT_ID_RE = re.compile(r"^evt_\d+$")
-
 
 def parse_filename(filename: str) -> dict | None:
     m = _FILENAME_RE.match(filename)
@@ -32,13 +23,11 @@ def parse_filename(filename: str) -> dict | None:
         status, update_num = "update", int(update_num_str)
     return {"event_id": event_id, "status": status, "update_num": update_num, "ext": ext}
 
-
 def read_json_file(path: Path) -> dict:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
-
 
 def _status_sort_key(meta: dict) -> tuple:
     if meta["status"] == "new":
@@ -46,7 +35,6 @@ def _status_sort_key(meta: dict) -> tuple:
     if meta["status"] == "update":
         return (meta["update_num"],)
     return (999_999,)
-
 
 def _build_event_summary(event_id: str, data: dict, latest_path: Path) -> dict:
     jpg_stem = latest_path.stem
@@ -62,7 +50,6 @@ def _build_event_summary(event_id: str, data: dict, latest_path: Path) -> dict:
         "camera_id":    data.get("camera_id"),
         "zone":         data.get("zone"),
     }
-
 
 def get_all_events(results_dir: Path) -> list[dict]:
     if not results_dir.exists():
@@ -92,7 +79,6 @@ def get_all_events(results_dir: Path) -> list[dict]:
 
     return events
 
-
 def get_filtered_events(
     results_dir: Path,
     date_str: str | None = None,
@@ -116,7 +102,6 @@ def get_filtered_events(
         events = [e for e in events if e["event_status"] == status]
     return events
 
-
 def get_stats(results_dir: Path) -> dict:
     all_events = get_all_events(results_dir)
     today = date.today().isoformat()
@@ -139,7 +124,6 @@ def get_stats(results_dir: Path) -> dict:
         "distribution":      dist,
         "recent":            all_events[:5],
     }
-
 
 def get_report_data(results_dir: Path, period: str, date_str: str | None = None) -> list[dict]:
     all_events = get_all_events(results_dir)
@@ -173,14 +157,13 @@ def get_report_data(results_dir: Path, period: str, date_str: str | None = None)
 
     elif period == "weekly":
         days = [(today - timedelta(days=i)).isoformat() for i in range(6, -1, -1)]
-    else:  # monthly
+    else:
         days = [(today - timedelta(days=i)).isoformat() for i in range(29, -1, -1)]
 
     buckets = {d: _empty() for d in days}
     for e in all_events:
         _inc(buckets, e.get("timestamp", "")[:10], e.get("signature", {}))
     return [{"label": k, **v} for k, v in buckets.items()]
-
 
 def get_event_timeline(results_dir: Path, event_id: str) -> list[dict]:
     event_dir = results_dir / event_id
@@ -220,7 +203,6 @@ def get_event_timeline(results_dir: Path, event_id: str) -> list[dict]:
 
     return timeline
 
-
 def get_notes(results_dir: Path, event_id: str) -> list[dict]:
     notes_path = results_dir / event_id / "notes.json"
     if not notes_path.exists():
@@ -229,7 +211,6 @@ def get_notes(results_dir: Path, event_id: str) -> list[dict]:
         return json.loads(notes_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return []
-
 
 def save_note(results_dir: Path, event_id: str, text: str) -> dict:
     event_dir = results_dir / event_id

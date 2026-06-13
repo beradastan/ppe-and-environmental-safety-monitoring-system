@@ -1,6 +1,3 @@
-"""
-LLMCoordinator — Ollama integration for real-time PPE violation reporting.
-"""
 
 import logging
 import json
@@ -8,9 +5,7 @@ from typing import Dict, List, Optional, Any
 import requests
 from datetime import datetime
 
-
 class OllamaLLMCoordinator:
-    """Generates concise safety reports via Ollama for each detected PPE violation event."""
 
     def __init__(
         self,
@@ -36,10 +31,7 @@ class OllamaLLMCoordinator:
         else:
             self.logger.warning("OFFLINE MODE — using mock LLM")
 
-    # ── Baglanti & temel request ───────────────────────────────────
-
     def check_connection(self) -> bool:
-        """Check connectivity to the Ollama server."""
         try:
             response = requests.get(f"{self.ollama_base_url}/api/tags", timeout=self.timeout)
             if response.status_code == 200:
@@ -55,7 +47,6 @@ class OllamaLLMCoordinator:
             return False
 
     def generate_response(self, prompt: str, temperature: float = 0.2) -> str:
-        """Send a prompt to the LLM and return the response text."""
         try:
             payload = {
                 "model": self.model_name,
@@ -76,24 +67,8 @@ class OllamaLLMCoordinator:
             self.logger.error(f"Error sending prompt: {str(e)}")
             return ""
 
-    # ── Formatlama — CNN ciktisi → LLM'in anlayacagi metin ────────
-
     def format_for_llm_minimal(self, helmet_result, vest_result, fire_result,
                               event_info: dict = None) -> str:
-        """
-        Minimal format - event bilgisi içerebilir.
-
-        Args:
-            event_info: event_manager'dan gelen dict
-                {
-                    "event_id": str,
-                    "event_status": str,
-                    "repeat_count": int,
-                    "duration_sec": float,
-                    "change_reason": str,
-                    ...
-                }
-        """
         h_viol = helmet_result.get("warning_count", 0)
         v_viol = vest_result.get("warning_count", 0)
         f_count = fire_result.get("detection_count", 0)
@@ -109,7 +84,6 @@ class OllamaLLMCoordinator:
             f"fire_confidence={fire_conf:.2f}"
         ]
 
-        # Event bilgisi ekle
         if event_info:
             lines.insert(0, f"event_id={event_info.get('event_id', 'N/A')}")
             lines.insert(1, f"event_status={event_info.get('event_status', 'N/A')}")
@@ -127,18 +101,12 @@ class OllamaLLMCoordinator:
         fire_result: Dict,
         image_name: str = "unknown",
     ) -> str:
-        """
-        CNN ajanlarinin ham sonuclarini LLM'in kolayca yorumlayabilecegi
-        Turkce yapilandirilmis metin formatina cevirir.
-
-        'detections' -> guvenli kisiler, 'warnings' -> ihlaller (alarm).
-        """
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        h_safe  = helmet_result.get("detection_count", 0)  # baret giyen
-        h_viol  = helmet_result.get("warning_count", 0)    # baretsiz (ihlal)
-        v_safe  = vest_result.get("detection_count", 0)    # yelek giyen
-        v_viol  = vest_result.get("warning_count", 0)      # yeleksiz (ihlal)
+        h_safe  = helmet_result.get("detection_count", 0)
+        h_viol  = helmet_result.get("warning_count", 0)
+        v_safe  = vest_result.get("detection_count", 0)
+        v_viol  = vest_result.get("warning_count", 0)
         f_count = fire_result.get("detection_count", 0)
 
         f_guven = ""
@@ -180,8 +148,6 @@ class OllamaLLMCoordinator:
             f"  - {ihlal_str}\n"
         )
 
-    # ── Ana raporlama — sadece alarm=True durumunda LLM cagrisi ───
-
     def generate_alarm_report(
         self,
         helmet_result: Dict,
@@ -191,26 +157,6 @@ class OllamaLLMCoordinator:
         use_minimal_format: bool = True,
         event_info: dict = None,
     ) -> Dict[str, Any]:
-        """
-        ⚡ OPTİMİZE - Alarm durumunda MINIMAL veri ile LLM'e gönder
-        
-        - use_minimal_format=True (default) → Sadece ihlal özeti (hızlı)
-        - use_minimal_format=False → Detaylı format (eski davranış)
-        - event_info: event_manager'dan gelen dict (opsiyonel)
-
-        Alarm yoksa LLM çağrılmaz (güvenli sahne).
-
-        Returns dict:
-          alarm      : bool
-          llm_called : bool
-          report     : str
-          structured : str (minimal veya detaylı)
-          image      : str
-          timestamp  : str
-          event_id   : str (event_info varsa)
-          event_status : str (event_info varsa)
-        """
-        # Alarm kontrol
         alarm = (
             helmet_result.get("warning_count", 0) > 0
             or vest_result.get("warning_count", 0) > 0
@@ -229,13 +175,11 @@ class OllamaLLMCoordinator:
                 "event_status": event_info.get("event_status") if event_info else None,
             }
 
-        # Alarm var → LLM'e minimal veri gönder
         if use_minimal_format:
             violations = self.format_for_llm_minimal(
                 helmet_result, vest_result, fire_result, event_info=event_info
             )
             
-            # ⚡ SIKI PROMPT - Halüsinasyon engelle, sadece faktual cevap
             prompt = (
                 "Sen bir iş güvenliği olay raporlama asistanısın.\n"
                 "Aşağıdaki veriler doğrulanmış CNN ihlal özetidir.\n"
@@ -248,7 +192,6 @@ class OllamaLLMCoordinator:
             )
             structured = violations
         else:
-            # Detaylı format (eski davranış)
             structured = self.format_for_llm(
                 helmet_result, vest_result, fire_result, image_name
             )
@@ -265,7 +208,6 @@ class OllamaLLMCoordinator:
         if self.offline_mode:
             llm_text = self._mock_report(helmet_result, vest_result, fire_result)
         else:
-            # ⚡ Temperature = 0.1 (çok düşük → deterministik, halüsinasyon az)
             llm_text = self.generate_response(prompt, temperature=0.1)
 
         if not llm_text:
@@ -280,7 +222,6 @@ class OllamaLLMCoordinator:
             "timestamp"  : datetime.now().isoformat(),
         }
 
-        # Event bilgisi ekle
         if event_info:
             result["event_id"] = event_info.get("event_id")
             result["event_status"] = event_info.get("event_status")
@@ -291,7 +232,6 @@ class OllamaLLMCoordinator:
         return result
 
     def _mock_report(self, helmet_result, vest_result, fire_result) -> str:
-        """Offline/test modu icin mock rapor - ÇOOK KISA"""
         parts = []
         
         if helmet_result.get("warning_count", 0) > 0:
@@ -305,7 +245,6 @@ class OllamaLLMCoordinator:
         if fire_result.get("detection_count", 0) > 0:
             parts.append("Yangın tespit edildi.")
         
-        # Acil eylem
         if parts:
             parts.append("Derhal tedbirler alınmalı.")
         

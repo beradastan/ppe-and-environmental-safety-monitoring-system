@@ -1,4 +1,3 @@
-"""LLM module"""
 
 from llm.llm_coordinator import OllamaLLMCoordinator, MockLLMCoordinator
 

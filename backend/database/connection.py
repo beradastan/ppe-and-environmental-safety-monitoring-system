@@ -12,10 +12,6 @@ logger = logging.getLogger("db.connection")
 
 _pool: ThreadedConnectionPool | None = None
 
-# ---------------------------------------------------------------------------
-# DSN builder — priority: DATABASE_URL env var → config.yaml → error
-# ---------------------------------------------------------------------------
-
 def _build_dsn() -> str:
     env = os.environ.get("DATABASE_URL")
     if env:
@@ -41,40 +37,23 @@ def _build_dsn() -> str:
         "Set the DATABASE_URL environment variable or configure database in config.yaml."
     )
 
-
-# ---------------------------------------------------------------------------
-# Connection pool
-# ---------------------------------------------------------------------------
-
 def init_pool(min_conn: int = 1, max_conn: int = 10) -> None:
     global _pool
     dsn = _build_dsn()
     _pool = ThreadedConnectionPool(min_conn, max_conn, dsn=dsn)
     logger.info("Connection pool initialized.")
 
-
 def _get_conn():
     if _pool is None:
         raise RuntimeError("Connection pool not initialized. Call init_pool() first.")
     return _pool.getconn()
 
-
 def _put_conn(conn) -> None:
     if _pool:
         _pool.putconn(conn)
 
-
-# ---------------------------------------------------------------------------
-# Context manager
-# ---------------------------------------------------------------------------
-
 @contextmanager
 def db_cursor():
-    """Auto commit/rollback. Rolls back on error.
-
-    with db_cursor() as cur:
-        cur.execute(...)
-    """
     conn = _get_conn()
     try:
         with conn.cursor() as cur:
@@ -86,16 +65,9 @@ def db_cursor():
     finally:
         _put_conn(conn)
 
-
-# ---------------------------------------------------------------------------
-# Schema initialization (idempotent)
-# ---------------------------------------------------------------------------
-
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
-
 def init_db() -> None:
-    """Runs schema.sql; skips if tables already exist."""
     sql = _SCHEMA_PATH.read_text(encoding="utf-8")
     with db_cursor() as cur:
         cur.execute(sql)

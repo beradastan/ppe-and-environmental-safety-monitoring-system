@@ -2,7 +2,6 @@ import json
 import re
 import requests
 
-
 class SafetyReportAgent:
     def __init__(
         self,
@@ -43,7 +42,6 @@ class SafetyReportAgent:
             return f"[LLM error: {e}]"
 
     def _strip_thinking(self, text: str) -> str:
-        # Strip Qwen3 thinking blocks (<think>...</think>)
         return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
 
     def _build_prompt(self, summary_json: dict) -> str:
@@ -57,7 +55,6 @@ class SafetyReportAgent:
         violation_counts = summary_json.get("violation_counts", {})
         location_breakdown = summary_json.get("location_breakdown", [])
 
-        # En kritik lokasyonu ve ihlali önceden belirle — modelin dikkatini çek
         top_location = location_breakdown[0] if location_breakdown else None
         top_violation = max(violation_counts, key=violation_counts.get) if violation_counts else None
         has_comparison = comparison.get("trend") not in (None, "no_data")

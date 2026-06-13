@@ -1,11 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-reader.py
-=========
-PostgreSQL'den event verisini okur.
-event_reader.py ile birebir ayni arayuzu saglar;
-app.py'deki import'lar degismeden calismaya devam eder.
-"""
 from __future__ import annotations
 
 import logging
@@ -15,11 +7,6 @@ from .connection import db_cursor
 
 logger = logging.getLogger("db.reader")
 
-
-# ---------------------------------------------------------------------------
-# Yardimcilar
-# ---------------------------------------------------------------------------
-
 def _ts(val) -> str:
     if val is None:
         return ""
@@ -27,10 +14,7 @@ def _ts(val) -> str:
         return val.isoformat()
     return str(val)
 
-
 def _row_to_event(row) -> dict:
-    # (event_id, event_status, updated_at, repeat_count,
-    #  duration_sec, signature, llm_report, has_image, camera_id, zone, false_positive)
     return {
         "event_id":       row[0],
         "event_status":   row[1],
@@ -44,7 +28,6 @@ def _row_to_event(row) -> dict:
         "zone":           row[9],
         "false_positive": bool(row[10]),
     }
-
 
 def _base_query() -> str:
     return """
@@ -67,16 +50,10 @@ def _base_query() -> str:
         FROM events e
     """
 
-
-# ---------------------------------------------------------------------------
-# Genel sorgular
-# ---------------------------------------------------------------------------
-
 def get_all_events() -> list[dict]:
     with db_cursor() as cur:
         cur.execute(_base_query() + " ORDER BY e.updated_at DESC")
         return [_row_to_event(r) for r in cur.fetchall()]
-
 
 def get_filtered_events(
     date_str:       str | None = None,
@@ -112,11 +89,6 @@ def get_filtered_events(
             params,
         )
         return [_row_to_event(r) for r in cur.fetchall()]
-
-
-# ---------------------------------------------------------------------------
-# Istatistikler
-# ---------------------------------------------------------------------------
 
 def get_stats() -> dict:
     today = date.today().isoformat()
@@ -154,7 +126,6 @@ def get_stats() -> dict:
             "fire":   int(row[3] or 0),
         }
 
-        # Son 5 event (false positive olmayanlar)
         cur.execute(
             _base_query() + " WHERE e.false_positive = FALSE ORDER BY e.updated_at DESC LIMIT 5"
         )
@@ -167,11 +138,6 @@ def get_stats() -> dict:
         "distribution":     dist,
         "recent":           recent,
     }
-
-
-# ---------------------------------------------------------------------------
-# Summary raporu için ham event verisi
-# ---------------------------------------------------------------------------
 
 def get_events_for_summary(start_date: str, end_date: str) -> list[dict]:
     with db_cursor() as cur:
@@ -207,11 +173,6 @@ def get_events_for_summary(start_date: str, end_date: str) -> list[dict]:
         }
         for r in rows
     ]
-
-
-# ---------------------------------------------------------------------------
-# Rapor verisi
-# ---------------------------------------------------------------------------
 
 def get_report_data(period: str, date_str: str | None = None) -> list[dict]:
     today = date.today()
@@ -250,13 +211,11 @@ def get_report_data(period: str, date_str: str | None = None) -> list[dict]:
     anchor = date.fromisoformat(date_str) if date_str else today
 
     if period == "weekly":
-        # Monday → Sunday (or today)
         start_d = anchor - timedelta(days=anchor.weekday())
         end_d   = min(start_d + timedelta(days=6), today)
         days = [(start_d + timedelta(days=i)).isoformat()
                 for i in range((end_d - start_d).days + 1)]
     else:
-        # 1st of month → last day (or today)
         start_d = anchor.replace(day=1)
         last    = _cal.monthrange(start_d.year, start_d.month)[1]
         end_d   = min(start_d.replace(day=last), today)
@@ -287,11 +246,6 @@ def get_report_data(period: str, date_str: str | None = None) -> list[dict]:
             buckets[key]["total"] += 1
 
     return [{"label": k, **v} for k, v in buckets.items()]
-
-
-# ---------------------------------------------------------------------------
-# Event detay
-# ---------------------------------------------------------------------------
 
 def get_event_timeline(event_id: str) -> list[dict]:
     with db_cursor() as cur:
@@ -324,7 +278,6 @@ def get_event_timeline(event_id: str) -> list[dict]:
         for r in rows
     ]
 
-
 def get_notes(event_id: str) -> list[dict]:
     with db_cursor() as cur:
         cur.execute(
@@ -341,16 +294,10 @@ def get_notes(event_id: str) -> list[dict]:
             for r in cur.fetchall()
         ]
 
-
 def save_note(event_id: str, text: str) -> dict:
     from .writer import write_note
     ts = write_note(event_id, text)
     return {"text": text, "timestamp": ts.isoformat()}
-
-
-# ---------------------------------------------------------------------------
-# Kaydedilmiş LLM raporları
-# ---------------------------------------------------------------------------
 
 def get_saved_reports(period: str | None = None, limit: int = 50) -> list[dict]:
     with db_cursor() as cur:
@@ -384,7 +331,6 @@ def get_saved_reports(period: str | None = None, limit: int = 50) -> list[dict]:
         }
         for r in rows
     ]
-
 
 def get_saved_report(report_id: int) -> dict | None:
     with db_cursor() as cur:

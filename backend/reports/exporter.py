@@ -1,15 +1,9 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 import csv
 import io
 import os
 from datetime import datetime
-
-
-# ---------------------------------------------------------------------------
-# CSV
-# ---------------------------------------------------------------------------
 
 def generate_csv(events: list[dict], period: str, start: str, end: str) -> bytes:
     output = io.StringIO()
@@ -51,13 +45,7 @@ def generate_csv(events: list[dict], period: str, start: str, end: str) -> bytes
 
     return ('﻿' + output.getvalue()).encode('utf-8')
 
-
-# ---------------------------------------------------------------------------
-# PDF
-# ---------------------------------------------------------------------------
-
 def _register_font():
-    """Arial (Windows) kaydeder; yoksa Helvetica döner."""
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
 
@@ -73,7 +61,6 @@ def _register_font():
         except Exception:
             pass
     return 'Helvetica', 'Helvetica-Bold'
-
 
 def generate_pdf(events: list[dict], period: str, start: str, end: str) -> bytes:
     from reportlab.lib.pagesizes import A4
@@ -115,7 +102,6 @@ def generate_pdf(events: list[dict], period: str, start: str, end: str) -> bytes
 
     story = []
 
-    # ── Başlık ──────────────────────────────────────────────
     story.append(Paragraph('Güvenlik Monitörü', title_s))
     story.append(Paragraph(
         f'{PERIOD_LABELS.get(period, period)} Guvenlik Raporu  |  {start}  -  {end}',
@@ -131,7 +117,6 @@ def generate_pdf(events: list[dict], period: str, start: str, end: str) -> bytes
         color=colors.HexColor('#3b82f6'), spaceAfter=12,
     ))
 
-    # ── Özet istatistik tablosu ──────────────────────────────
     total    = len(events)
     closed   = sum(1 for e in events if e['event_status'] == 'closed')
     helmets  = sum(1 for e in events if e.get('helmet_violation'))
@@ -171,7 +156,6 @@ def generate_pdf(events: list[dict], period: str, start: str, end: str) -> bytes
     story.append(stat_table)
     story.append(Spacer(1, 4))
 
-    # Ihlal yüzde çubuğu (metin tabanlı)
     if total:
         bar_data = [['Ihlal Tipi', 'Sayi', 'Oran', 'Dagilim']]
         for label, count in [('Baret', helmets), ('Yelek', vests),
@@ -200,7 +184,6 @@ def generate_pdf(events: list[dict], period: str, start: str, end: str) -> bytes
         ]))
         story.append(bar_table)
 
-    # ── Olay tablosu ────────────────────────────────────────
     story.append(Paragraph('Olay Listesi', section_s))
 
     ev_headers = ['Olay ID', 'Tarih', 'Kamera', 'Bolge',

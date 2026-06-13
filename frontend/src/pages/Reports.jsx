@@ -106,13 +106,12 @@ export default function Reports({ theme = 'dark' }) {
   const [summaryLoading, setSummaryLoading] = useState(true)
   const [llmLoading, setLlmLoading]         = useState(false)
   const [llmError, setLlmError]             = useState('')
-  const pendingRef = useRef(null)   // { period, date } of in-flight request
+  const pendingRef = useRef(null)
 
   const [savedReports, setSavedReports]     = useState([])
   const [savedLoading, setSavedLoading]     = useState(true)
-  const [selectedSaved, setSelectedSaved]   = useState(null)   // { id, text, loading }
+  const [selectedSaved, setSelectedSaved]   = useState(null)
   const [exporting, setExporting]           = useState(false)
-
 
   const dateParam =
     period === 'daily'   ? dailyDate :
@@ -148,7 +147,6 @@ export default function Reports({ theme = 'dark' }) {
       .finally(() => setSummaryLoading(false))
   }, [period, dailyDate, weekStr, monthStr])
 
-  // Seçili dönem için kayıtlı rapor varsa otomatik yükle
   useEffect(() => {
     if (!savedReports.length) return
     const match = savedReports.find(r => r.period === period && r.report_date === dateParam)
@@ -159,12 +157,11 @@ export default function Reports({ theme = 'dark' }) {
     }
   }, [dateParam, period, savedReports])
 
-  // Socket.IO — LLM tamamlandığında
   useEffect(() => {
     function onReady({ period: p, date: d, llm_text, auto_generated }) {
       if (p === period) loadSaved(p)
       setSelectedSaved(prev => prev ? { ...prev, text: llm_text || '' } : prev)
-      if (auto_generated) return  // otomatik rapor: sadece listeyi yenile
+      if (auto_generated) return
       const pending = pendingRef.current
       if (!pending) return
       if (pending.period === p && pending.date === (d || '')) {
@@ -255,8 +252,7 @@ export default function Reports({ theme = 'dark' }) {
   return (
     <div className="reports-page">
 
-
-      {/* ── Header ── */}
+      {}
       <div className="rp-header">
         <div className="rp-period-tabs">
           {PERIODS.map(p => (
@@ -316,13 +312,13 @@ export default function Reports({ theme = 'dark' }) {
         </div>
       </div>
 
-      {/* ── Print başlığı (sadece yazdırmada görünür) ── */}
+      {}
       <div className="rp-print-title">
         <strong>Fabrika Güvenlik Raporu</strong>
         <span>{PERIODS.find(p => p.value === period)?.label} — {dateParam || today()}</span>
       </div>
 
-      {/* ── İhlal özet kartlar ── */}
+      {}
       <div className="rp-summary">
         <div className="rp-sum-card">
           <div className="rp-sum-val">{totals.total}</div>
@@ -336,10 +332,10 @@ export default function Reports({ theme = 'dark' }) {
         ))}
       </div>
 
-      {/* ── Risk / Trend / Lokasyon kartlar ── */}
+      {}
       <div className="rp-info-row">
 
-        {/* Risk kartı */}
+        {}
         <div className="rp-info-card">
           <div className="rp-info-label">Risk Seviyesi</div>
           {summaryLoading ? (
@@ -362,7 +358,7 @@ export default function Reports({ theme = 'dark' }) {
           )}
         </div>
 
-        {/* Trend kartı */}
+        {}
         <div className="rp-info-card">
           <div className="rp-info-label">Önceki Dönemle Karşılaştırma</div>
           {summaryLoading ? (
@@ -388,7 +384,7 @@ export default function Reports({ theme = 'dark' }) {
           )}
         </div>
 
-        {/* Lokasyon kartı */}
+        {}
         <div className="rp-info-card">
           <div className="rp-info-label">En Kritik Bölge</div>
           {summaryLoading ? (
@@ -408,7 +404,7 @@ export default function Reports({ theme = 'dark' }) {
 
       </div>
 
-      {/* ── Dağılım grafiği ── */}
+      {}
       <div className="rp-chart-panel">
         {chartLoading ? (
           <div className="rp-loading">Yükleniyor…</div>
@@ -440,7 +436,7 @@ export default function Reports({ theme = 'dark' }) {
         )}
       </div>
 
-      {/* ── Kamera / bölge dağılımı ── */}
+      {}
       {!summaryLoading && locations.length > 0 && (
         <div className="rp-chart-panel">
           <div className="rp-section-title">Bölge Dağılımı</div>
@@ -464,7 +460,7 @@ export default function Reports({ theme = 'dark' }) {
         </div>
       )}
 
-      {/* ── LLM Raporu ── */}
+      {}
       <div className="rp-llm-panel">
         <div className="rp-llm-header">
           <span className="rp-section-title">YZ Güvenlik Raporu</span>
@@ -491,7 +487,7 @@ export default function Reports({ theme = 'dark' }) {
         )}
       </div>
 
-      {/* ── Kaydedilmiş Raporlar ── */}
+      {}
       <div className="rp-saved-panel no-print">
         <div className="rp-section-title">
           Kaydedilmiş {PERIODS.find(p => p.value === period)?.label} Raporlar

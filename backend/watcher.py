@@ -1,13 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-watcher.py
-==========
-results/ dizinini izler; yeni .json dosyası görüldüğünde
-Socket.IO üzerinden 'new_alert' event'i yayınlar.
-
-Watchdog WindowsApiObserver kullanır (Windows'ta varsayılan).
-async_mode='threading' ile çalışır — eventlet/gevent gerekmez.
-"""
 from __future__ import annotations
 
 import logging
@@ -22,14 +12,11 @@ from backend.event_reader import parse_filename, read_json_file
 
 logger = logging.getLogger("watcher")
 
-# DB writer — yoksa veya disabled ise None kalir
 _db_write_event = None
 
-# Deduplication: Windows'ta on_created aynı dosya için birden fazla tetiklenebilir
 _seen_lock  = threading.Lock()
-_seen_paths: dict[str, float] = {}   # path_str → son işlenme zamanı
-_DEDUP_TTL  = 10.0  # saniye — Windows NTFS bazen aynı dosyayı geç tetikler
-
+_seen_paths: dict[str, float] = {}
+_DEDUP_TTL  = 10.0
 
 def _load_db_writer() -> None:
     global _db_write_event
@@ -44,7 +31,6 @@ def _load_db_writer() -> None:
             logger.info("Database writer active.")
     except Exception as exc:
         logger.warning("Database writer unavailable: %s", exc)
-
 
 class _Handler(FileSystemEventHandler):
     def __init__(self, socketio) -> None:
@@ -62,7 +48,6 @@ class _Handler(FileSystemEventHandler):
         if meta is None:
             return
 
-        # Deduplication: Windows'ta aynı dosya için birden fazla on_created gelebilir
         path_str = str(path)
         now = time.time()
         with _seen_lock:
@@ -70,7 +55,6 @@ class _Handler(FileSystemEventHandler):
                 return
             _seen_paths[path_str] = now
 
-        # Windows'ta NTFS yazma tam bitmeden event tetiklenebilir
         time.sleep(0.2)
 
         data = read_json_file(path)
@@ -78,7 +62,6 @@ class _Handler(FileSystemEventHandler):
             logger.warning(f"Empty or invalid JSON: {path}")
             return
 
-        # DB'ye yaz (etkinse)
         if _db_write_event is not None:
             jpg_stem = path.stem
             img_name = jpg_stem + ".jpg"
@@ -95,12 +78,7 @@ class _Handler(FileSystemEventHandler):
         logger.info(f"[ALERT] {payload['event_id']} → {payload['event_status']}")
         self._socketio.emit("new_alert", payload)
 
-
 class ResultsWatcher:
-    """
-    results/ dizinini izleyen watchdog sarmalayıcısı.
-    Flask başladığında start(), kapanırken stop() çağrılmalı.
-    """
 
     def __init__(self, results_dir: Path, socketio) -> None:
         self._results_dir = results_dir

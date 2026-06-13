@@ -44,7 +44,6 @@ export default function AlertHistory({ initialSelectedId, onEventSelect, socket 
 
   useEffect(() => { loadEvents(filters) }, [filters])
 
-  // Socket.IO: yeni alert geldiğinde listeyi yenile
   useEffect(() => {
     if (!socket) return
     function onAlert() { loadEvents(filters) }
@@ -52,7 +51,6 @@ export default function AlertHistory({ initialSelectedId, onEventSelect, socket 
     return () => socket.off('new_alert', onAlert)
   }, [socket, filters])
 
-  // Event kapandığında listeyi yenile
   useEffect(() => {
     if (!socket) return
     function onClosed() { loadEvents(filters) }
@@ -60,7 +58,6 @@ export default function AlertHistory({ initialSelectedId, onEventSelect, socket 
     return () => socket.off('event_closed', onClosed)
   }, [socket, filters])
 
-  // Dışarıdan seçim gelirse (Dashboard → Alerts)
   useEffect(() => {
     if (initialSelectedId && initialSelectedId !== selectedId) {
       handleSelect(initialSelectedId)

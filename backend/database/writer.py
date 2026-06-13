@@ -1,18 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-writer.py
-=========
-Olayları ve notları PostgreSQL'e yazar.
-
-Ana fonksiyonlar:
-    write_event(data, image_filename=None)
-        — event JSON verisini events + event_timeline tablolarına yazar.
-        — events tablosunda UPSERT yapar (en son durum her zaman güncel).
-        — event_timeline'a yeni satır ekler (geçmiş korunur).
-
-    write_note(event_id, note_text)
-        — event_notes tablosuna not ekler.
-"""
 from __future__ import annotations
 
 import json
@@ -23,13 +8,11 @@ from .connection import db_cursor
 
 logger = logging.getLogger("db.writer")
 
-
 def _parse_ts(ts_str: str) -> datetime:
     try:
         return datetime.fromisoformat(ts_str)
     except (ValueError, TypeError):
         return datetime.now()
-
 
 def _sig_flags(sig: dict) -> tuple[bool, bool, bool, bool]:
     return (
@@ -39,13 +22,7 @@ def _sig_flags(sig: dict) -> tuple[bool, bool, bool, bool]:
         bool(sig.get("fire_detected")),
     )
 
-
 def write_event(data: dict, image_filename: str | None = None) -> None:
-    """
-    Event JSON'unu DB'ye yazar.
-    events: UPSERT (en son durum)
-    event_timeline: INSERT (geçmis kayit)
-    """
     event_id      = data.get("event_id", "")
     event_status  = data.get("event_status", "")
     ts            = _parse_ts(data.get("timestamp", ""))
@@ -64,7 +41,6 @@ def write_event(data: dict, image_filename: str | None = None) -> None:
 
     try:
         with db_cursor() as cur:
-            # events: UPSERT — en son durum
             cur.execute(
                 """
                 INSERT INTO events (
@@ -96,7 +72,6 @@ def write_event(data: dict, image_filename: str | None = None) -> None:
                 ),
             )
 
-            # event_timeline: her gecis ayri satir
             cur.execute(
                 """
                 INSERT INTO event_timeline (
@@ -117,9 +92,7 @@ def write_event(data: dict, image_filename: str | None = None) -> None:
     except Exception as exc:
         logger.error("write_event error: %s", exc, exc_info=True)
 
-
 def close_event(event_id: str, repeat_count: int | None = None, duration_sec: float | None = None) -> None:
-    """events tablosunda event_status='closed' olarak günceller (video sonu / pipeline kapanışı)."""
     now = datetime.now()
     try:
         with db_cursor() as cur:
@@ -140,12 +113,7 @@ def close_event(event_id: str, repeat_count: int | None = None, duration_sec: fl
     except Exception as exc:
         logger.error("close_event error: %s", exc, exc_info=True)
 
-
 def write_note(event_id: str, note_text: str) -> datetime:
-    """
-    event_notes tablosuna not ekler.
-    Dondurur: created_at zamani.
-    """
     now = datetime.now()
     try:
         with db_cursor() as cur:
@@ -161,9 +129,7 @@ def write_note(event_id: str, note_text: str) -> datetime:
         logger.error("write_note error: %s", exc, exc_info=True)
     return now
 
-
 def resolve_event(event_id: str) -> None:
-    """events tablosunda event_status='closed' olarak günceller (pipeline callback)."""
     now = datetime.now()
     try:
         with db_cursor() as cur:
@@ -175,9 +141,7 @@ def resolve_event(event_id: str) -> None:
     except Exception as exc:
         logger.error("resolve_event error: %s", exc, exc_info=True)
 
-
 def mark_false_positive(event_id: str) -> None:
-    """Event'i yanlış tespit olarak işaretler; henüz kapatılmamışsa kapatır."""
     now = datetime.now()
     try:
         with db_cursor() as cur:
@@ -194,8 +158,6 @@ def mark_false_positive(event_id: str) -> None:
         logger.debug("Marked as false positive: %s", event_id)
     except Exception as exc:
         logger.error("mark_false_positive error: %s", exc, exc_info=True)
-
-
 
 def save_llm_report(
     period: str,

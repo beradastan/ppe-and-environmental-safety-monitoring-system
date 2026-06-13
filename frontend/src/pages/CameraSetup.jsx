@@ -5,27 +5,25 @@ import './CameraSetup.css'
 const CAM_ID_SUGGESTIONS = ['cam_01', 'cam_02', 'cam_03', 'cam_04']
 
 export default function CameraSetup() {
-  const [sourceTab, setSourceTab]     = useState('camera')   // 'camera' | 'video'
+  const [sourceTab, setSourceTab]     = useState('camera')
   const [camIndex, setCamIndex]       = useState('0')
   const [videoPath, setVideoPath]     = useState('')
   const [browsing, setBrowsing]       = useState(false)
   const [cameraId, setCameraId]       = useState('')
   const [zone, setZone]               = useState('')
-  const [detMode, setDetMode]         = useState('crop')      // 'crop' | 'scene'
-  const [devices, setDevices]         = useState([])   // MediaDeviceInfo[]
+  const [detMode, setDetMode]         = useState('crop')
+  const [devices, setDevices]         = useState([])
   const [status, setStatus]           = useState({ running: false, source: '', camera_id: '', zone: '', mode: '' })
   const [busy, setBusy]               = useState(false)
   const [error, setError]             = useState('')
   const pollRef = useRef(null)
 
-  // Enumerate video devices via browser API
   useEffect(() => {
     navigator.mediaDevices?.enumerateDevices()
       .then(devs => setDevices(devs.filter(d => d.kind === 'videoinput')))
       .catch(() => {})
   }, [])
 
-  // Poll pipeline status every 3 s
   useEffect(() => {
     fetchPipelineStatus().then(setStatus).catch(() => {})
     pollRef.current = setInterval(
@@ -91,7 +89,7 @@ export default function CameraSetup() {
         </span>
       </div>
 
-      {/* Running info banner */}
+      {}
       {running && (
         <div className="cs-running-bar">
           <span>Aktif kaynak: <strong>{status.source}</strong></span>
@@ -102,10 +100,10 @@ export default function CameraSetup() {
       )}
 
       <div className="cs-body">
-        {/* ── LEFT: source + settings ── */}
+        {}
         <div className="cs-left">
 
-          {/* Source card */}
+          {}
           <div className="cs-card">
             <div className="cs-card__label">Kaynak</div>
             <div className="cs-tabs">
@@ -172,7 +170,7 @@ export default function CameraSetup() {
             )}
           </div>
 
-          {/* Detection mode card */}
+          {}
           <div className="cs-card">
             <div className="cs-card__label">Tespit Modu</div>
             <div className="cs-tabs">
@@ -198,7 +196,7 @@ export default function CameraSetup() {
             </p>
           </div>
 
-          {/* Settings card */}
+          {}
           <div className="cs-card">
             <div className="cs-card__label">Kamera Tanımı</div>
             <div className="cs-field-row">
@@ -234,10 +232,10 @@ export default function CameraSetup() {
             </div>
           </div>
 
-          {/* Error */}
+          {}
           {error && <div className="cs-error">{error}</div>}
 
-          {/* Action button */}
+          {}
           {!running ? (
             <button
               className="cs-start-btn"
@@ -257,7 +255,7 @@ export default function CameraSetup() {
           )}
         </div>
 
-        {/* ── RIGHT: info panel ── */}
+        {}
         <div className="cs-right">
           <div className="cs-card cs-info-card">
             <div className="cs-card__label">Bilgi</div>
