@@ -1,7 +1,8 @@
 {
   "name": "factory-safety-dashboard",
-  "private": true,
-  "version": "0.1.0",
+  "private": false,
+  "version": "1.0.0",
+  "description": "Real-time AI-powered factory safety monitoring system with PPE and fire detection",
   "type": "module",
   "scripts": {
     "dev": "vite",
