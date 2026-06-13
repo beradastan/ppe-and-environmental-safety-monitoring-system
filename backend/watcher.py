@@ -41,9 +41,9 @@ def _load_db_writer() -> None:
         if cfg.get("database", {}).get("enabled", False):
             from backend.database.writer import write_event
             _db_write_event = write_event
-            logger.info("DB yazici aktif.")
+            logger.info("Database writer active.")
     except Exception as exc:
-        logger.warning("DB yazici yuklenemedi: %s", exc)
+        logger.warning("Database writer unavailable: %s", exc)
 
 
 class _Handler(FileSystemEventHandler):
@@ -75,7 +75,7 @@ class _Handler(FileSystemEventHandler):
 
         data = read_json_file(path)
         if not data:
-            logger.warning(f"Boş/hatalı JSON okundu: {path}")
+            logger.warning(f"Empty or invalid JSON: {path}")
             return
 
         # DB'ye yaz (etkinse)
@@ -114,10 +114,10 @@ class ResultsWatcher:
         self._observer = Observer()
         self._observer.schedule(handler, str(self._results_dir), recursive=True)
         self._observer.start()
-        logger.info(f"Watcher başladı: {self._results_dir}")
+        logger.info(f"Watcher started: {self._results_dir}")
 
     def stop(self) -> None:
         if self._observer:
             self._observer.stop()
             self._observer.join()
-            logger.info("Watcher durduruldu.")
+            logger.info("Watcher stopped.")

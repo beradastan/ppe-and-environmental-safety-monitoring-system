@@ -295,5 +295,5 @@ class PPEProcessor:
         for pid in stale:
             del self.states[pid]
         if stale:
-            print(f"  [CLEANUP] {len(stale)} kayip stable_pid temizlendi. Kalan: {len(self.states)}")
+            print(f"  [CLEANUP] {len(stale)} stale stable_pid entries removed. Remaining: {len(self.states)}")
         self._seen_stable_pids.clear()

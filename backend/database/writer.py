@@ -112,10 +112,10 @@ def write_event(data: dict, image_filename: str | None = None) -> None:
                 ),
             )
 
-        logger.debug("Yazildi: %s [%s]", event_id, event_status)
+        logger.debug("Written: %s [%s]", event_id, event_status)
 
     except Exception as exc:
-        logger.error("write_event hatasi: %s", exc, exc_info=True)
+        logger.error("write_event error: %s", exc, exc_info=True)
 
 
 def close_event(event_id: str, repeat_count: int | None = None, duration_sec: float | None = None) -> None:
@@ -136,9 +136,9 @@ def close_event(event_id: str, repeat_count: int | None = None, duration_sec: fl
                 f"UPDATE events SET {', '.join(fields)} WHERE event_id = %s",
                 values,
             )
-        logger.debug("Event kapatildi: %s", event_id)
+        logger.debug("Event closed: %s", event_id)
     except Exception as exc:
-        logger.error("close_event hatasi: %s", exc, exc_info=True)
+        logger.error("close_event error: %s", exc, exc_info=True)
 
 
 def write_note(event_id: str, note_text: str) -> datetime:
@@ -156,9 +156,9 @@ def write_note(event_id: str, note_text: str) -> datetime:
                 """,
                 (event_id, note_text, now),
             )
-        logger.debug("Not yazildi: %s", event_id)
+        logger.debug("Note written: %s", event_id)
     except Exception as exc:
-        logger.error("write_note hatasi: %s", exc, exc_info=True)
+        logger.error("write_note error: %s", exc, exc_info=True)
     return now
 
 
@@ -171,9 +171,9 @@ def resolve_event(event_id: str) -> None:
                 "UPDATE events SET event_status = %s, updated_at = %s WHERE event_id = %s",
                 ("closed", now, event_id),
             )
-        logger.debug("Event resolve edildi: %s", event_id)
+        logger.debug("Event resolved: %s", event_id)
     except Exception as exc:
-        logger.error("resolve_event hatasi: %s", exc, exc_info=True)
+        logger.error("resolve_event error: %s", exc, exc_info=True)
 
 
 def mark_false_positive(event_id: str) -> None:
@@ -191,9 +191,9 @@ def mark_false_positive(event_id: str) -> None:
                 """,
                 (now, event_id),
             )
-        logger.debug("Yanlis tespit isaretlendi: %s", event_id)
+        logger.debug("Marked as false positive: %s", event_id)
     except Exception as exc:
-        logger.error("mark_false_positive hatasi: %s", exc, exc_info=True)
+        logger.error("mark_false_positive error: %s", exc, exc_info=True)
 
 
 
@@ -216,6 +216,6 @@ def save_llm_report(
                 """,
                 (period, report_date, llm_text, auto_generated),
             )
-        logger.debug("LLM raporu kaydedildi: %s %s", period, report_date)
+        logger.debug("LLM report saved: %s %s", period, report_date)
     except Exception as exc:
-        logger.error("save_llm_report hatasi: %s", exc, exc_info=True)
+        logger.error("save_llm_report error: %s", exc, exc_info=True)

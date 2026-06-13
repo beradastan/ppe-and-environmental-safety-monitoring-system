@@ -57,7 +57,7 @@ def test_health():
         check("GET /api/stats erişilebilir", r.status_code == 200, f"HTTP {r.status_code}")
     except requests.exceptions.ConnectionError:
         check("Backend erişilebilir", False, f"Bağlantı hatası — python -m backend.app çalışıyor mu?")
-        print("\n  Backend'e ulaşılamıyor, testler durduruluyor.")
+        print("\n  Cannot reach backend, stopping tests.")
         sys.exit(1)
 
 
@@ -152,10 +152,10 @@ def print_summary():
     passed = sum(1 for _, ok, _ in results if ok)
     failed = total - passed
     print(f"\n{'='*50}")
-    print(f"  SONUC: {passed}/{total} basarili" + (f", {failed} basarisiz" if failed else " -- tumü gecti"))
+    print(f"  RESULT: {passed}/{total} passed" + (f", {failed} failed" if failed else " -- all passed"))
     print(f"{'='*50}")
     if failed:
-        print("\n  Basarisiz testler:")
+        print("\n  Failed tests:")
         for name, ok, detail in results:
             if not ok:
                 print(f"    {FAIL}  {name}  {detail}")
