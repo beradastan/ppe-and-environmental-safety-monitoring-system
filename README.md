@@ -1,4 +1,4 @@
-# Factory Safety Monitoring System
+# Safety Monitoring System
 
 Endüstriyel ortamlarda gerçek zamanlı KKD (Kişisel Koruyucu Donanım) denetimi ve yangın tespiti yapan yapay zeka destekli güvenlik izleme sistemi.
 
